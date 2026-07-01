@@ -142,7 +142,6 @@ impl LogParser {
             line_range: raw.line_range,
             page: raw.page,
             context: raw.context,
-            hint: raw.hint,
         })
     }
 }
@@ -243,6 +242,35 @@ mod tests {
             Event::Message(m) => assert_eq!(m.file, "./chapters/intro.tex"),
             _ => panic!("expected message"),
         }
+    }
+
+    #[test]
+    fn fatal_error_is_attributed_to_the_file_open_when_it_occurred_not_a_later_reopen() {
+        // Regression test for a real latexmk run: the engine's fatal-error
+        // banner is followed by latexmk's own retry-log prose, and then a
+        // fresh `lualatex` run reopening ./main.tex and nested files. None
+        // of that must be misread as context of the fatal error, and file
+        // attribution must stay pinned to whatever was open when the fatal
+        // error was read, not drift to whatever the log happens to open
+        // next while a runaway message was still "open".
+        let events = run(&[
+            "(./main.tex",
+            "!  ==> Fatal error occurred, no output PDF file produced!",
+            "Transcript written on main.log.",
+            "Latexmk: applying rule 'lualatex'...",
+            "(./main.tex",
+            "(/usr/local/texlive/2026/texmf-dist/tex/latex/examplecls/examplecls.cls",
+            "Document Class: examplecls 2026/02/02 v3.49.2 Example document class",
+        ]);
+        let fatal = events
+            .iter()
+            .find_map(|e| match e {
+                Event::Message(m) if m.text.contains("Fatal error occurred") => Some(m),
+                _ => None,
+            })
+            .expect("fatal error message");
+        assert_eq!(fatal.file, "./main.tex");
+        assert!(fatal.context.is_empty());
     }
 
     fn read_sample(name: &str) -> String {

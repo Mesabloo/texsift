@@ -12,7 +12,6 @@ pub struct RawMessage {
     pub line_range: Option<(u32, u32)>,
     pub page: Option<u32>,
     pub context: Vec<String>,
-    pub hint: Option<String>,
 }
 
 fn is_recognized_event_prefix(line: &str) -> bool {
@@ -247,7 +246,6 @@ struct ErrorPartial {
     file_override: Option<String>,
     line_range: Option<(u32, u32)>,
     context: Vec<String>,
-    hint_lines: Vec<String>,
     snippet1: Option<String>,
     snippet2: Option<String>,
     /// Set once a `<...>`/untagged context entry has already been collected
@@ -261,9 +259,12 @@ enum ErrorPhase {
     /// `pending` holds a context line awaiting its indented continuation:
     /// (first_line, is_tagged).
     ContextLines { pending: Option<(String, bool)> },
+    /// The `l.N` source line has just been read; the very next line, if any,
+    /// is its column continuation. The message finalizes as soon as this
+    /// phase resolves - the free-form "help" prose TeX prints after that is
+    /// not fixed-length and not reliably delimited on a live terminal
+    /// stream, so it's deliberately not collected.
     SourceContinuation,
-    HintSeek,
-    HintLines,
 }
 
 #[derive(Debug, Clone)]
@@ -311,7 +312,6 @@ impl MessageMatcher {
                 line_range: None,
                 page: None,
                 context: vec![],
-                hint: None,
             }),
             State::ShowCollecting { first, context } => out.push(RawMessage {
                 kind: MessageKind::ShowOutput { command: String::new() },
@@ -320,7 +320,6 @@ impl MessageMatcher {
                 line_range: None,
                 page: None,
                 context,
-                hint: None,
             }),
         }
         out
@@ -338,11 +337,11 @@ impl MessageMatcher {
 
     fn dispatch_idle(&mut self, line: &str, out: &mut Vec<RawMessage>) {
         if let Some((file, n, msg)) = try_parse_gcc_style(line) {
-            self.start_gcc_error(file, n, &msg);
+            Self::start_gcc_error(file, n, &msg, out);
             return;
         }
         if let Some(rest) = line.strip_prefix("! ") {
-            self.start_bang_error(rest);
+            self.start_bang_error(rest, out);
             return;
         }
         if line.starts_with("Missing character:") {
@@ -353,7 +352,6 @@ impl MessageMatcher {
                 line_range: None,
                 page: None,
                 context: vec![],
-                hint: None,
             });
             return;
         }
@@ -365,7 +363,6 @@ impl MessageMatcher {
                 line_range: lr,
                 page: None,
                 context: vec![],
-                hint: None,
             });
             return;
         }
@@ -377,7 +374,6 @@ impl MessageMatcher {
                 line_range: lr,
                 page: None,
                 context: vec![],
-                hint: None,
             });
             return;
         }
@@ -389,7 +385,6 @@ impl MessageMatcher {
                 line_range: lr,
                 page: None,
                 context: vec![],
-                hint: None,
             });
             return;
         }
@@ -416,8 +411,30 @@ impl MessageMatcher {
         // Latexmk wrapper lines, blank lines, etc.) is silently ignored.
     }
 
-    fn start_bang_error(&mut self, rest: &str) {
+    fn start_bang_error(&mut self, rest: &str, out: &mut Vec<RawMessage>) {
         let (kind, text) = classify_error_text(rest);
+        // The engine's final abort banner ("==> Fatal error occurred, no
+        // output PDF file produced!") is printed directly from shutdown code
+        // (`close_files_and_terminate`), not through TeX's normal
+        // error/context-display machinery - it never carries a source
+        // location or context, so there's nothing to wait for. Treating it
+        // like an ordinary bang error left it open hunting for an `l.N` that
+        // will never come, which - especially on a live, non-newline-clean
+        // terminal stream - can run on for as long as the process keeps
+        // producing output (e.g. latexmk's retry log after the abort),
+        // silently reattributing the message to whatever file happens to be
+        // open by the time something finally closes it.
+        if rest.contains("Fatal error occurred") {
+            out.push(RawMessage {
+                kind,
+                text,
+                file_override: None,
+                line_range: None,
+                page: None,
+                context: vec![],
+            });
+            return;
+        }
         self.state = State::ErrorCtx {
             partial: Box::new(ErrorPartial {
                 kind,
@@ -425,7 +442,6 @@ impl MessageMatcher {
                 file_override: None,
                 line_range: None,
                 context: vec![],
-                hint_lines: vec![],
                 snippet1: None,
                 snippet2: None,
                 discard_snippet: false,
@@ -434,40 +450,47 @@ impl MessageMatcher {
         };
     }
 
-    fn start_gcc_error(&mut self, file: String, n: u32, msg: &str) {
+    /// GCC-style errors already carry a line number (`file:N: message`) with
+    /// no `l.N` marker to wait for, so unlike a bang error there is no
+    /// context to collect - the message is complete as soon as this line is
+    /// parsed.
+    fn start_gcc_error(file: String, n: u32, msg: &str, out: &mut Vec<RawMessage>) {
         let (kind, text) = classify_error_text(msg);
-        self.state = State::ErrorCtx {
-            partial: Box::new(ErrorPartial {
-                kind,
-                text,
-                file_override: Some(file),
-                line_range: Some((n, n)),
-                context: vec![],
-                hint_lines: vec![],
-                snippet1: None,
-                snippet2: None,
-                discard_snippet: false,
-            }),
-            // GCC-style errors already carry a line number; there is no `l.N`
-            // marker to wait for, so any prose that follows is a hint, not
-            // context.
-            phase: ErrorPhase::HintSeek,
-        };
+        out.push(RawMessage {
+            kind,
+            text,
+            file_override: Some(file),
+            line_range: Some((n, n)),
+            page: None,
+            context: vec![],
+        });
     }
 
     fn step_error(&mut self, mut partial: ErrorPartial, phase: ErrorPhase, line: &str, out: &mut Vec<RawMessage>) {
         match phase {
             ErrorPhase::ContextLines { pending } => {
                 if let Some((first_line, tagged)) = pending {
-                    let blank = line.trim().is_empty();
+                    // `line` was going to be joined onto `first_line` as its
+                    // continuation, but if it's actually the `l.N` marker, a
+                    // recognized new event, or a blank separator, it must be
+                    // handled as such rather than being unconditionally
+                    // absorbed as text - otherwise whether a real terminator
+                    // is honored would depend on the parity of how many
+                    // untagged context lines happened to precede it (odd
+                    // numbers of context lines would hide the very next
+                    // terminator inside a joined entry). Flush `first_line`
+                    // on its own and reprocess `line` from a clean
+                    // `pending: None` state instead.
+                    let is_terminator =
+                        line.trim().is_empty() || is_recognized_event_prefix(line) || try_parse_line_marker(line).is_some();
+                    if is_terminator {
+                        let entry = if tagged { first_line.trim_end().to_string() } else { first_line };
+                        partial.context.push(entry);
+                        self.step_error(partial, ErrorPhase::ContextLines { pending: None }, line, out);
+                        return;
+                    }
                     let entry = if tagged {
-                        if blank {
-                            first_line.trim_end().to_string()
-                        } else {
-                            format!("{} {}", first_line.trim_end(), line.trim())
-                        }
-                    } else if blank {
-                        first_line
+                        format!("{} {}", first_line.trim_end(), line.trim())
                     } else {
                         format!("{}\n{}", first_line, line)
                     };
@@ -514,10 +537,8 @@ impl MessageMatcher {
             }
             ErrorPhase::SourceContinuation => {
                 if line.trim().is_empty() {
-                    self.state = State::ErrorCtx {
-                        partial: Box::new(partial),
-                        phase: ErrorPhase::HintSeek,
-                    };
+                    Self::finalize_error(partial, out);
+                    self.state = State::Idle;
                     return;
                 }
                 if is_recognized_event_prefix(line) {
@@ -527,46 +548,8 @@ impl MessageMatcher {
                     return;
                 }
                 partial.snippet2 = Some(line.to_string());
-                self.state = State::ErrorCtx {
-                    partial: Box::new(partial),
-                    phase: ErrorPhase::HintSeek,
-                };
-            }
-            ErrorPhase::HintSeek => {
-                if line.trim().is_empty() {
-                    Self::finalize_error(partial, out);
-                    self.state = State::Idle;
-                    return;
-                }
-                if is_recognized_event_prefix(line) {
-                    Self::finalize_error(partial, out);
-                    self.state = State::Idle;
-                    self.dispatch_idle(line, out);
-                    return;
-                }
-                partial.hint_lines.push(line.to_string());
-                self.state = State::ErrorCtx {
-                    partial: Box::new(partial),
-                    phase: ErrorPhase::HintLines,
-                };
-            }
-            ErrorPhase::HintLines => {
-                if line.trim().is_empty() {
-                    Self::finalize_error(partial, out);
-                    self.state = State::Idle;
-                    return;
-                }
-                if is_recognized_event_prefix(line) {
-                    Self::finalize_error(partial, out);
-                    self.state = State::Idle;
-                    self.dispatch_idle(line, out);
-                    return;
-                }
-                partial.hint_lines.push(line.to_string());
-                self.state = State::ErrorCtx {
-                    partial: Box::new(partial),
-                    phase: ErrorPhase::HintLines,
-                };
+                Self::finalize_error(partial, out);
+                self.state = State::Idle;
             }
         }
     }
@@ -586,17 +569,6 @@ impl MessageMatcher {
                 )),
             }
         }
-        let hint = if partial.hint_lines.is_empty() {
-            None
-        } else {
-            // TeX's own help text is hardcoded to break across multiple
-            // physical lines (often mid-sentence) for historical width
-            // reasons, not because each line is a distinct logical unit -
-            // unlike `context`, which preserves real source-snippet
-            // structure. Reflow it into one prose line, matching how the
-            // rest of the renderer treats message text.
-            Some(partial.hint_lines.iter().map(|l| l.trim()).collect::<Vec<_>>().join(" "))
-        };
         out.push(RawMessage {
             kind: partial.kind,
             text: partial.text,
@@ -604,7 +576,6 @@ impl MessageMatcher {
             line_range: partial.line_range,
             page: None,
             context: partial.context,
-            hint,
         });
     }
 
@@ -635,7 +606,6 @@ impl MessageMatcher {
             line_range: line_no.map(|n| (n, n)),
             page,
             context: vec![],
-            hint: None,
         });
     }
 
@@ -651,7 +621,6 @@ impl MessageMatcher {
                     line_range: Some((n, n)),
                     page: None,
                     context: vec![],
-                    hint: None,
                 });
                 self.state = State::Idle;
                 return;
@@ -664,7 +633,6 @@ impl MessageMatcher {
             line_range: None,
             page: None,
             context: vec![],
-            hint: None,
         });
         self.state = State::Idle;
         self.dispatch_idle(line, out);
@@ -680,7 +648,6 @@ impl MessageMatcher {
                 line_range: Some((n, n)),
                 page: None,
                 context,
-                hint: None,
             });
             self.state = State::Idle;
             return;
@@ -845,6 +812,8 @@ mod tests {
 
     #[test]
     fn gcc_style_package_error() {
+        // The trailing prose line is TeX's free-form help text, which is no
+        // longer collected - only the error itself is emitted.
         let msgs = feed_all(&[
             "./mydoc.tex:42: Package examplepkg Error: Unknown option `foo'.",
             "You might have misspelled `foo' or the language is not loaded.",
@@ -858,17 +827,47 @@ mod tests {
         assert_eq!(msgs[0].file_override, Some("./mydoc.tex".to_string()));
         assert_eq!(msgs[0].line_range, Some((42, 42)));
         assert!(msgs[0].context.is_empty());
-        assert_eq!(
-            msgs[0].hint,
-            Some("You might have misspelled `foo' or the language is not loaded.".to_string())
-        );
+    }
+
+    #[test]
+    fn fatal_error_has_no_context_and_finalizes_immediately() {
+        // The engine's shutdown banner never carries an `l.N`/context, unlike
+        // ordinary bang errors - it must not sit around waiting for one,
+        // absorbing whatever text is produced afterwards (e.g. latexmk's own
+        // retry-log prose following a real abort).
+        let msgs = feed_all(&[
+            "!  ==> Fatal error occurred, no output PDF file produced!",
+            "Transcript written on main.log.",
+            "Latexmk: Getting log file 'build/main.log'",
+        ]);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].kind, MessageKind::LatexError);
+        assert!(msgs[0].text.contains("Fatal error occurred"));
+        assert!(msgs[0].context.is_empty());
+        assert_eq!(msgs[0].line_range, None);
+    }
+
+    #[test]
+    fn bang_error_context_terminator_is_honored_regardless_of_line_parity() {
+        // A real `l.N` marker landing right after an *odd* number of raw
+        // (untagged) context lines used to get paired up with the preceding
+        // line and swallowed as plain text, because the join logic never
+        // re-checked terminator conditions on the second line of a pair -
+        // whether `l.N` was recognized depended on the parity of how many
+        // context lines came before it.
+        let msgs = feed_all(&["! Undefined control sequence.", "\\foobar", "l.42 \\callsite", "              "]);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].line_range, Some((42, 42)));
+        assert_eq!(msgs[0].context, vec!["\\foobar".to_string()]);
     }
 
     #[test]
     fn bang_error_simple_tagged_context() {
         // Mirrors the "Missing $ inserted." / "<inserted text>" shape, with
         // placeholder line number and generic file (not present in this
-        // module - file is attached later by the coordinator).
+        // module - file is attached later by the coordinator). The trailing
+        // hint prose is fed too, to confirm it's simply dropped rather than
+        // absorbed into this message or leaking into the next one.
         let msgs = feed_all(&[
             "! Missing $ inserted.",
             "<inserted text> ",
@@ -883,10 +882,6 @@ mod tests {
         assert_eq!(msgs[0].text, "Missing $ inserted.");
         assert_eq!(msgs[0].line_range, Some((7, 7)));
         assert_eq!(msgs[0].context, vec!["<inserted text> $".to_string()]);
-        assert_eq!(
-            msgs[0].hint,
-            Some("Some hint prose describing the mistake, spanning more than one physical line of hint text.".to_string())
-        );
     }
 
     #[test]
@@ -904,10 +899,6 @@ mod tests {
         assert_eq!(
             msgs[0].context,
             vec!["\\foobar\n             some more context".to_string()]
-        );
-        assert_eq!(
-            msgs[0].hint,
-            Some("The control sequence at the end of the top line of your error message was never \\def'ed.".to_string())
         );
     }
 
@@ -928,7 +919,6 @@ mod tests {
             msgs[0].context,
             vec!["\\foobar\n        some more context".to_string()]
         );
-        assert!(msgs[0].hint.is_some());
     }
 
     #[test]

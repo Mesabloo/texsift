@@ -36,7 +36,6 @@ pub struct LogMessage {
     pub line_range: Option<(u32, u32)>,
     pub page: Option<u32>,
     pub context: Vec<String>,
-    pub hint: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

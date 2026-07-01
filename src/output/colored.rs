@@ -192,7 +192,7 @@ impl<W: Write> Renderer<W> {
             }
             writeln!(self.out).ok();
         }
-        self.print_context_and_hint(m, &indent, color);
+        self.print_context(m, &indent, color);
     }
 
     /// The free-form message text, before any label prefix - this is the
@@ -261,7 +261,7 @@ impl<W: Write> Renderer<W> {
         text.map(|t| self.paint(&t, Color::BrightBlack))
     }
 
-    fn print_context_and_hint(&mut self, m: &LogMessage, indent: &str, color: Color) {
+    fn print_context(&mut self, m: &LogMessage, indent: &str, color: Color) {
         let bar_glyph = if self.opts.ascii { "|" } else { "│" };
         let bar = self.paint(bar_glyph, color);
         let content_width = self.opts.width.saturating_sub(indent.chars().count() + bar_glyph.chars().count() + 1);
@@ -270,12 +270,6 @@ impl<W: Write> Renderer<W> {
                 for wrapped in wrap_plain(line, content_width) {
                     writeln!(self.out, "{indent}{bar} {wrapped}").ok();
                 }
-            }
-        }
-        if let Some(hint) = &m.hint {
-            writeln!(self.out, "{indent}{bar}").ok();
-            for wrapped in wrap_plain(hint, content_width) {
-                writeln!(self.out, "{indent}{bar} {wrapped}").ok();
             }
         }
     }
@@ -410,7 +404,6 @@ mod tests {
             line_range: Some((line, line)),
             page: Some(page),
             context: vec![],
-            hint: None,
         })
     }
 
@@ -470,14 +463,14 @@ mod tests {
         // usual single blank-line separator, then the message.
         let out = render(
             vec![
-                warning("./chapters/frontend.tex", &[], "examplepkg", "Something", 2, 1),
+                warning("./chapters/intro.tex", &[], "examplepkg", "Something", 2, 1),
                 warning("", &[], "pdf backend", "unreferenced destination with name 'x'", 0, 0),
             ],
             no_color(80),
         );
         assert_eq!(
             out,
-            "./chapters/frontend.tex\n\
+            "./chapters/intro.tex\n\
              \x20 ⚠ Package examplepkg: Something  (line 2, page 1)\n\
              \n\
              \x20 ⚠ pdf backend: unreferenced destination with name 'x'  (line 0, page 0)\n"
@@ -519,7 +512,6 @@ mod tests {
                     line_range: None,
                     page: None,
                     context: vec![],
-                    hint: None,
                 }),
             ],
             no_color(80),
@@ -543,7 +535,6 @@ mod tests {
                 line_range: Some((1145, 1145)),
                 page: None,
                 context: vec!["<inserted text> $".to_string()],
-                hint: Some("Some hint text.".to_string()),
             })],
             ascii_no_color(80),
         );
@@ -551,9 +542,7 @@ mod tests {
             out,
             "./main.tex\n\
              \x20 x Missing $ inserted.  (line 1145)\n\
-             \x20 | <inserted text> $\n\
-             \x20 |\n\
-             \x20 | Some hint text.\n"
+             \x20 | <inserted text> $\n"
         );
         assert!(!out.contains('✕'));
         assert!(!out.contains('│'));
@@ -580,7 +569,6 @@ mod tests {
                 line_range: None,
                 page: None,
                 context: vec![],
-                hint: None,
             }));
             r.finish();
             r.render_summary();
@@ -601,7 +589,6 @@ mod tests {
                 line_range: Some((2, 3)),
                 page: None,
                 context: vec![],
-                hint: None,
             })],
             no_color(80),
         );
@@ -616,7 +603,6 @@ mod tests {
                 line_range: None,
                 page: None,
                 context: vec![],
-                hint: None,
             })],
             no_color(80),
         );
@@ -651,7 +637,7 @@ mod tests {
     }
 
     #[test]
-    fn hint_wraps_at_width_with_bar_prefixed_continuation() {
+    fn context_wraps_at_width_with_bar_prefixed_continuation() {
         let out = render(
             vec![Event::Message(LogMessage {
                 kind: MessageKind::LatexError,
@@ -660,11 +646,10 @@ mod tests {
                 ancestors: vec![],
                 line_range: Some((1145, 1145)),
                 page: None,
-                context: vec![],
-                hint: Some(
+                context: vec![
                     "I've inserted a begin-math/end-math symbol since I think you left one out."
                         .to_string(),
-                ),
+                ],
             })],
             ascii_no_color(60),
         );
@@ -672,7 +657,6 @@ mod tests {
             out,
             "./main.tex\n\
              \x20 x Missing $ inserted.  (line 1145)\n\
-             \x20 |\n\
              \x20 | I've inserted a begin-math/end-math symbol since I think\n\
              \x20 | you left one out.\n"
         );
@@ -696,7 +680,7 @@ mod tests {
 
     #[test]
     fn width_zero_disables_wrapping_in_render_options() {
-        let long_hint = "one two three four five six seven eight nine ten".to_string();
+        let long_context = "one two three four five six seven eight nine ten".to_string();
         let out = render(
             vec![Event::Message(LogMessage {
                 kind: MessageKind::LatexError,
@@ -705,13 +689,12 @@ mod tests {
                 ancestors: vec![],
                 line_range: None,
                 page: None,
-                context: vec![],
-                hint: Some(long_hint.clone()),
+                context: vec![long_context.clone()],
             })],
             ascii_no_color(0),
         );
-        // width: 0 means "unbounded" - the hint stays on one line rather
-        // than being broken up.
-        assert!(out.contains(&format!("| {long_hint}\n")), "expected unwrapped hint line, got:\n{out}");
+        // width: 0 means "unbounded" - the context line stays on one line
+        // rather than being broken up.
+        assert!(out.contains(&format!("| {long_context}\n")), "expected unwrapped context line, got:\n{out}");
     }
 }

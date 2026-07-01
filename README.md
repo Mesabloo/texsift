@@ -58,14 +58,8 @@ $ texsift build/main.log
   « Underfull \hbox badness 10000  (line 42)
   ✕ Missing $ inserted.  (line 87)
   │ <inserted text> $
-  │
-  │ I've inserted a begin-math/end-math symbol since I think
-  │ you left one out. Proceed, with fingers crossed.
   ✕ Display math should end with $$.  (line 87)
   │ <to be read again> \par
-  │
-  │ The `$' that I just saw supposedly matches a previous `$$'.
-  │ So I shall assume that you typed `$$' both times.
 
 ✔ PDF written: main.pdf
 ────────────────────────────────────────────────────────────────────────────────
