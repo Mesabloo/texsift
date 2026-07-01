@@ -6,7 +6,7 @@ fn bin() -> &'static str {
 }
 
 fn sample_path(name: &str) -> String {
-    format!("{}/{}", env!("CARGO_MANIFEST_DIR"), name)
+    format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), name)
 }
 
 fn run_with_stdin(args: &[&str], stdin_content: &str) -> (bool, String) {

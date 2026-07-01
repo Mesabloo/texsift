@@ -211,10 +211,10 @@ mod tests {
         use crate::parser::line_joiner::LineJoiner;
 
         for path in [
-            concat!(env!("CARGO_MANIFEST_DIR"), "/test.log"),
-            concat!(env!("CARGO_MANIFEST_DIR"), "/test2.log"),
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.log"),
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test2.log"),
         ] {
-            let raw = std::fs::read_to_string(path).expect("sample log should exist at repo root");
+            let raw = std::fs::read_to_string(path).expect("sample log should exist under tests/fixtures");
             let mut joiner = LineJoiner::new();
             let mut stack = FileStack::new();
             for line in raw.lines() {

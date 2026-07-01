@@ -274,8 +274,8 @@ mod tests {
     }
 
     fn read_sample(name: &str) -> String {
-        let path = format!("{}/{}", env!("CARGO_MANIFEST_DIR"), name);
-        std::fs::read_to_string(path).expect("sample log should exist at repo root")
+        let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), name);
+        std::fs::read_to_string(path).expect("sample log should exist under tests/fixtures")
     }
 
     #[test]

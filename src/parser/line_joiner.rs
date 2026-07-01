@@ -148,8 +148,8 @@ mod tests {
 
     #[test]
     fn real_log_round_trip_natbib_citations() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/test.log");
-        let raw = std::fs::read_to_string(path).expect("test.log should exist at repo root");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.log");
+        let raw = std::fs::read_to_string(path).expect("test.log should exist under tests/fixtures");
         let raw_citation_lines = raw
             .lines()
             .filter(|l| l.starts_with("Package natbib Warning: Citation `"))
@@ -176,8 +176,8 @@ mod tests {
 
     #[test]
     fn real_log_round_trip_lualatex_noise() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/test2.log");
-        let raw = std::fs::read_to_string(path).expect("test2.log should exist at repo root");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test2.log");
+        let raw = std::fs::read_to_string(path).expect("test2.log should exist under tests/fixtures");
 
         let mut j = LineJoiner::new();
         let mut joined = Vec::new();
