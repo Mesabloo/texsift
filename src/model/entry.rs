@@ -56,5 +56,9 @@ pub struct LogMessage {
 pub enum Event {
     Message(LogMessage),
     PassBoundary(PassKind),
-    PdfBuilt { path: String },
+    /// `Output written on <path> (...)` - despite the name TeX prints for
+    /// this message, `<path>` isn't necessarily a PDF (plain `latex`
+    /// produces a `.dvi`, etc.), so the renderer picks the label from the
+    /// path's extension rather than hardcoding "PDF".
+    OutputBuilt { path: String },
 }

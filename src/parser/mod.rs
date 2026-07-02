@@ -22,7 +22,7 @@ fn try_parse_pass_boundary(line: &str) -> Option<PassKind> {
     })
 }
 
-fn try_parse_pdf_built(line: &str) -> Option<String> {
+fn try_parse_output_built(line: &str) -> Option<String> {
     let rest = line.strip_prefix("Output written on ")?;
     let idx = rest.find(" (")?;
     Some(rest[..idx].to_string())
@@ -106,8 +106,8 @@ impl LogParser {
             out.push(Event::PassBoundary(kind));
             return;
         }
-        if let Some(path) = try_parse_pdf_built(line) {
-            out.push(Event::PdfBuilt { path });
+        if let Some(path) = try_parse_output_built(line) {
+            out.push(Event::OutputBuilt { path });
             return;
         }
         // Finalize any pending message (e.g. a multi-line warning ended by
@@ -180,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn pass_boundary_and_pdf_built_do_not_reach_file_stack_or_messages() {
+    fn pass_boundary_and_output_built_do_not_reach_file_stack_or_messages() {
         let events = run(&[
             "Run number 1 of rule 'pdflatex'",
             "(./main.tex",
@@ -192,7 +192,7 @@ mod tests {
             events,
             vec![
                 Event::PassBoundary(PassKind::Pdflatex),
-                Event::PdfBuilt { path: "build/main.pdf".to_string() },
+                Event::OutputBuilt { path: "build/main.pdf".to_string() },
                 Event::PassBoundary(PassKind::Bibtex),
                 Event::PassBoundary(PassKind::Other("sometool".to_string())),
             ]
@@ -310,8 +310,8 @@ mod tests {
         let bibtex_passes = events.iter().filter(|e| matches!(e, Event::PassBoundary(PassKind::Bibtex))).count();
         assert_eq!(bibtex_passes, 2);
 
-        let pdf_built = events.iter().filter(|e| matches!(e, Event::PdfBuilt { .. })).count();
-        assert_eq!(pdf_built, 3);
+        let output_built = events.iter().filter(|e| matches!(e, Event::OutputBuilt { .. })).count();
+        assert_eq!(output_built, 3);
     }
 
     #[test]
@@ -337,8 +337,8 @@ mod tests {
         assert!(errors[1].text.contains("Display math should end with $$"));
         assert_eq!(errors[1].line_range, Some((1145, 1145)));
 
-        let pdf_built = events.iter().filter(|e| matches!(e, Event::PdfBuilt { .. })).count();
-        assert_eq!(pdf_built, 1);
+        let output_built = events.iter().filter(|e| matches!(e, Event::OutputBuilt { .. })).count();
+        assert_eq!(output_built, 1);
 
         // test2.log has no latexmk `Run number` wrapper at all - the single
         // pass must still be detected, from the `This is LuaHBTeX ...

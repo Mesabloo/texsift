@@ -48,6 +48,19 @@ fn glyph_and_color(kind: &MessageKind, ascii: bool) -> (&'static str, Color) {
     }
 }
 
+/// The label to print before "written: <path>" for an `Event::OutputBuilt`,
+/// picked from the path's extension - `latex` (as opposed to `pdflatex`)
+/// produces a `.dvi`, so "Output written on ..." isn't always a PDF.
+fn output_kind_label(path: &str) -> &'static str {
+    match std::path::Path::new(path).extension().and_then(|e| e.to_str()) {
+        Some(ext) if ext.eq_ignore_ascii_case("pdf") => "PDF",
+        Some(ext) if ext.eq_ignore_ascii_case("dvi") => "DVI",
+        Some(ext) if ext.eq_ignore_ascii_case("ps") => "PostScript",
+        Some(ext) if ext.eq_ignore_ascii_case("xdv") => "XDV",
+        _ => "output",
+    }
+}
+
 /// Fully streaming renderer: each [`Event`] is printed as soon as it
 /// arrives - nothing is buffered waiting for a pass boundary, so output
 /// keeps pace with `latexmk -pvc` piping diagnostics in live as they're
@@ -121,8 +134,8 @@ impl<W: Write> Renderer<W> {
                 self.print_pass_separator(&pass_label(&kind));
                 self.current_file = None;
             }
-            Event::PdfBuilt { path } => {
-                self.print_pdf_built(&path);
+            Event::OutputBuilt { path } => {
+                self.print_output_built(&path);
                 self.current_file = None;
             }
         }
@@ -295,13 +308,14 @@ impl<W: Write> Renderer<W> {
         self.printed_anything = true;
     }
 
-    fn print_pdf_built(&mut self, path: &str) {
+    fn print_output_built(&mut self, path: &str) {
         if self.printed_anything {
             writeln!(self.out).ok();
         }
         let glyph = if self.opts.ascii { "*" } else { "✔" };
         let glyph_painted = self.paint_bold(glyph, Color::Green);
-        let rest = self.paint(&format!(" PDF written: {path}"), Color::Green);
+        let label = output_kind_label(path);
+        let rest = self.paint(&format!(" {label} written: {path}"), Color::Green);
         writeln!(self.out, "{glyph_painted}{rest}").ok();
         self.printed_anything = true;
     }
@@ -524,6 +538,21 @@ mod tests {
         let first_line = out.lines().next().unwrap();
         assert_eq!(first_line.chars().count(), 40);
         assert!(first_line.starts_with("── pdflatex "));
+    }
+
+    #[test]
+    fn output_built_label_reflects_the_path_extension() {
+        let pdf = render(vec![Event::OutputBuilt { path: "build/main.pdf".to_string() }], no_color(80));
+        assert_eq!(pdf, "✔ PDF written: build/main.pdf\n");
+
+        let dvi = render(vec![Event::OutputBuilt { path: "build/main.dvi".to_string() }], no_color(80));
+        assert_eq!(dvi, "✔ DVI written: build/main.dvi\n");
+
+        // `plain latex` (as opposed to `pdflatex`) is the common source of a
+        // non-PDF `Output written on ...` line; anything unrecognized falls
+        // back to a generic label rather than a wrong PDF/DVI claim.
+        let other = render(vec![Event::OutputBuilt { path: "build/main.xyz".to_string() }], no_color(80));
+        assert_eq!(other, "✔ output written: build/main.xyz\n");
     }
 
     #[test]

@@ -273,7 +273,7 @@ BufRead (stdin or std::fs::File, wrapped in io::BufReader)
   └─ .lines()                    lines arrive as they are written; EOF closes stream
       └─ LineJoiner              stateful: rejoins 79/80-char-wrapped fragments
           └─ LogParser           stateful: drives file stack + message detector
-              └─ Event stream    Message | PassBoundary | PdfBuilt
+              └─ Event stream    Message | PassBoundary | OutputBuilt
                   └─ OutputRenderer   writes colored lines to stdout
 ```
 
@@ -352,7 +352,7 @@ pub struct LogMessage {
 pub enum Event {
     Message(LogMessage),
     PassBoundary(PassKind),
-    PdfBuilt { path: String },
+    OutputBuilt { path: String },
 }
 ```
 
@@ -533,10 +533,13 @@ Patterns:
 - `Run number \d+ of rule 'bibtex .*'` → `PassKind::Bibtex`
 - `Run number \d+ of rule '(.*)'` → `PassKind::Other(name)`
 
-`Output written on <path> (...)` → `PdfBuilt { path }`. Emitted regardless of
-whether errors occurred in the same pass. The renderer prints a short green
-confirmation line, e.g. `✔ PDF written: build/main.pdf` (Unicode) or
-`* PDF written: build/main.pdf` (ASCII).
+`Output written on <path> (...)` → `OutputBuilt { path }`. Emitted regardless
+of whether errors occurred in the same pass. The renderer prints a short
+green confirmation line, with the label picked from `<path>`'s extension
+(`PDF`, `DVI`, `PostScript`, `XDV`, or a generic `output` fallback) since
+`latex` (as opposed to `pdflatex`) produces a `.dvi`, not a PDF - e.g.
+`✔ PDF written: build/main.pdf` (Unicode) or `* PDF written: build/main.pdf`
+(ASCII).
 
 No deduplication of any kind is performed. Every message is emitted as-is,
 regardless of whether it appeared in a previous pass.
