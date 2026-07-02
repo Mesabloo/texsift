@@ -44,7 +44,7 @@ impl RawMessage {
 }
 
 fn is_recognized_event_prefix(line: &str) -> bool {
-    const PREFIXES: [&str; 11] = [
+    const PREFIXES: [&str; 13] = [
         "!",
         "Overfull",
         "Underfull",
@@ -56,8 +56,10 @@ fn is_recognized_event_prefix(line: &str) -> bool {
         "[",
         "]",
         "Warning--",
+        "l.",
+        "FiXme",
     ];
-    line.starts_with("l.") || line.starts_with("FiXme") || PREFIXES.iter().any(|p| line.starts_with(p))
+    PREFIXES.iter().any(|p| line.starts_with(p))
 }
 
 /// Whether `line` ends an in-progress multi-line warning continuation
