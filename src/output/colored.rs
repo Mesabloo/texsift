@@ -407,15 +407,27 @@ mod tests {
         RenderOptions { ascii: true, color: false, width }
     }
 
-    fn warning(file: &str, ancestors: &[&str], package: &str, text: &str, line: u32, page: u32) -> Event {
-        Event::Message(LogMessage {
-            kind: MessageKind::PackageWarning { package: package.to_string() },
+    /// A [`LogMessage`] with sensible defaults (no ancestors, no
+    /// line/page, no context) - callers override only the fields that
+    /// matter for what they're testing via struct-update syntax.
+    fn message(kind: MessageKind, file: &str, text: &str) -> LogMessage {
+        LogMessage {
+            kind,
             text: text.to_string(),
             file: file.to_string(),
+            ancestors: vec![],
+            line_range: None,
+            page: None,
+            context: vec![],
+        }
+    }
+
+    fn warning(file: &str, ancestors: &[&str], package: &str, text: &str, line: u32, page: u32) -> Event {
+        Event::Message(LogMessage {
             ancestors: ancestors.iter().map(|s| s.to_string()).collect(),
             line_range: Some((line, line)),
             page: Some(page),
-            context: vec![],
+            ..message(MessageKind::PackageWarning { package: package.to_string() }, file, text)
         })
     }
 
@@ -516,15 +528,11 @@ mod tests {
         let out = render(
             vec![
                 warning("build/main.aux", &["./main.tex"], "LaTeX", "Label multiply defined", 10, 1),
-                Event::Message(LogMessage {
-                    kind: MessageKind::PackageWarning { package: "natbib".to_string() },
-                    text: "There were undefined citations".to_string(),
-                    file: "./main.tex".to_string(),
-                    ancestors: vec![],
-                    line_range: None,
-                    page: None,
-                    context: vec![],
-                }),
+                Event::Message(message(
+                    MessageKind::PackageWarning { package: "natbib".to_string() },
+                    "./main.tex",
+                    "There were undefined citations",
+                )),
             ],
             no_color(80),
         );
@@ -540,13 +548,9 @@ mod tests {
     fn ascii_theme_swaps_glyphs_not_colors() {
         let out = render(
             vec![Event::Message(LogMessage {
-                kind: MessageKind::LatexError,
-                text: "Missing $ inserted.".to_string(),
-                file: "./main.tex".to_string(),
-                ancestors: vec![],
                 line_range: Some((1145, 1145)),
-                page: None,
                 context: vec!["<inserted text> $".to_string()],
+                ..message(MessageKind::LatexError, "./main.tex", "Missing $ inserted.")
             })],
             ascii_no_color(80),
         );
@@ -573,15 +577,7 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
         {
             let mut r = Renderer::new(&mut buf, RenderOptions { ascii: false, color: true, width: 20 });
-            r.handle(Event::Message(LogMessage {
-                kind: MessageKind::LatexError,
-                text: "boom".to_string(),
-                file: "./main.tex".to_string(),
-                ancestors: vec![],
-                line_range: None,
-                page: None,
-                context: vec![],
-            }));
+            r.handle(Event::Message(message(MessageKind::LatexError, "./main.tex", "boom")));
             r.finish();
             r.render_summary();
         }
@@ -594,28 +590,15 @@ mod tests {
     fn overfull_box_location_variants() {
         let with_lines = render(
             vec![Event::Message(LogMessage {
-                kind: MessageKind::OverfullHbox { pt: 53.32617 },
-                text: String::new(),
-                file: "./main.tex".to_string(),
-                ancestors: vec![],
                 line_range: Some((2, 3)),
-                page: None,
-                context: vec![],
+                ..message(MessageKind::OverfullHbox { pt: 53.32617 }, "./main.tex", "")
             })],
             no_color(80),
         );
         assert!(with_lines.contains("Overfull \\hbox 53.33pt too wide  (lines 2–3)"));
 
         let output_active = render(
-            vec![Event::Message(LogMessage {
-                kind: MessageKind::OverfullHbox { pt: 13.30402 },
-                text: String::new(),
-                file: "./main.tex".to_string(),
-                ancestors: vec![],
-                line_range: None,
-                page: None,
-                context: vec![],
-            })],
+            vec![Event::Message(message(MessageKind::OverfullHbox { pt: 13.30402 }, "./main.tex", ""))],
             no_color(80),
         );
         assert!(output_active.contains("Overfull \\hbox 13.30pt too wide  (output active)"));
@@ -652,16 +635,12 @@ mod tests {
     fn context_wraps_at_width_with_bar_prefixed_continuation() {
         let out = render(
             vec![Event::Message(LogMessage {
-                kind: MessageKind::LatexError,
-                text: "Missing $ inserted.".to_string(),
-                file: "./main.tex".to_string(),
-                ancestors: vec![],
                 line_range: Some((1145, 1145)),
-                page: None,
                 context: vec![
                     "I've inserted a begin-math/end-math symbol since I think you left one out."
                         .to_string(),
                 ],
+                ..message(MessageKind::LatexError, "./main.tex", "Missing $ inserted.")
             })],
             ascii_no_color(60),
         );
@@ -695,13 +674,8 @@ mod tests {
         let long_context = "one two three four five six seven eight nine ten".to_string();
         let out = render(
             vec![Event::Message(LogMessage {
-                kind: MessageKind::LatexError,
-                text: "boom".to_string(),
-                file: "./main.tex".to_string(),
-                ancestors: vec![],
-                line_range: None,
-                page: None,
                 context: vec![long_context.clone()],
+                ..message(MessageKind::LatexError, "./main.tex", "boom")
             })],
             ascii_no_color(0),
         );
