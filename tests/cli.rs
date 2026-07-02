@@ -80,6 +80,38 @@ fn width_flag_controls_separator_length() {
 }
 
 #[test]
+fn bare_no_warn_suppresses_every_warning() {
+    let (ok, stdout) = run_with_args(&["--no-color", "--no-warn", &sample_path("test6.log")]);
+    assert!(ok);
+    assert!(!stdout.contains('⚠'), "bare --no-warn should suppress every warning");
+}
+
+#[test]
+fn no_warn_with_package_value_suppresses_only_that_package() {
+    // `pdf backend` diagnostics come from the engine, not a LaTeX package,
+    // so the `silence` package can't hide them - `--no-warn=pdf-backend`
+    // needs to scope down to just those, without touching other warnings.
+    let (ok, without_flag) = run_with_args(&["--no-color", &sample_path("test6.log")]);
+    assert!(ok);
+    assert!(without_flag.contains("pdf backend"), "test6.log should contain pdf backend warnings");
+
+    let (ok, with_flag) = run_with_args(&["--no-color", "--no-warn=pdf-backend", &sample_path("test6.log")]);
+    assert!(ok);
+    assert!(!with_flag.contains("pdf backend"), "pdf backend warnings should be suppressed");
+    assert!(with_flag.contains('⚠'), "other warnings should still be shown");
+}
+
+#[test]
+fn no_warn_takes_a_comma_separated_package_list() {
+    let (ok, stdout) =
+        run_with_args(&["--no-color", "--no-warn=pdf-backend,LaTeX", &sample_path("test6.log")]);
+    assert!(ok);
+    assert!(!stdout.contains("pdf backend"));
+    assert!(!stdout.contains("⚠ LaTeX:"));
+    assert!(stdout.contains("⚠ Package scrbook:"), "unrelated package warnings should still be shown");
+}
+
+#[test]
 fn width_zero_behaves_like_unset_and_auto_detects() {
     // `--width=0` is an explicit "auto-detect" request, not a literal
     // zero-width terminal - it should produce the same output as omitting

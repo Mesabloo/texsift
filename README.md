@@ -35,11 +35,13 @@ texsift build/main.log
 Options:
 
 ```
---no-warn     Suppress warnings; show only errors and box diagnostics
---no-boxes    Suppress all Overfull/Underfull box diagnostics
---no-color    Disable all terminal colors
---ascii       Use ASCII fallback symbols instead of Unicode glyphs
---width <N>   Override terminal width used for pass separators
+--no-warn[=<PACKAGE,...>]  Suppress warnings; bare flag suppresses all of them, or pass a
+                           comma-separated package list to suppress just those, e.g.
+                           --no-warn=pdf-backend (the `silence` package can't hide these)
+--no-boxes                 Suppress all Overfull/Underfull box diagnostics
+--no-color                 Disable all terminal colors
+--ascii                    Use ASCII fallback symbols instead of Unicode glyphs
+--width <N>                Override terminal width used for pass separators
 ```
 
 Run the test suite with `cargo test`.

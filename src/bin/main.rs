@@ -18,9 +18,10 @@ struct Cli {
     /// Log file to read; if omitted, reads from stdin
     file: Option<PathBuf>,
 
-    /// Suppress warnings; show only errors and box diagnostics
-    #[arg(long)]
-    no_warn: bool,
+    /// Suppress warnings; bare flag suppresses all, or give a comma-separated
+    /// package list (e.g. `--no-warn=pdf-backend,LaTeX`) to suppress only those
+    #[arg(long, num_args = 0..=1, value_delimiter = ',', default_missing_value = "all", value_name = "PACKAGE,...")]
+    no_warn: Vec<String>,
 
     /// Suppress all Overfull/Underfull box diagnostics
     #[arg(long)]
@@ -42,16 +43,41 @@ struct Cli {
 }
 
 struct Filter {
-    no_warn: bool,
+    /// Bare `--no-warn` (no value): every diagnostic in `Category::Warning`
+    /// is suppressed, regardless of package.
+    no_warn_all: bool,
+    /// `--no-warn=<package>` (repeatable): only `PackageWarning`s from
+    /// these specific packages are suppressed. Matched against the
+    /// package name as-is, or with hyphens read as spaces, so
+    /// `pdf-backend` reaches the engine's `pdf backend` label without
+    /// needing to quote a literal space on the command line.
+    no_warn_packages: Vec<String>,
     no_boxes: bool,
 }
 
 impl Filter {
+    fn new(no_warn: Vec<String>, no_boxes: bool) -> Self {
+        let no_warn_all = no_warn.iter().any(|v| v == "all");
+        let no_warn_packages = no_warn.into_iter().filter(|v| v != "all").collect();
+        Self { no_warn_all, no_warn_packages, no_boxes }
+    }
+
     fn should_show(&self, kind: &MessageKind) -> bool {
         match kind.category() {
             Category::Error => true,
             Category::OverfullBox | Category::UnderfullBox => !self.no_boxes,
-            Category::Warning => !self.no_warn,
+            Category::Warning => {
+                if self.no_warn_all {
+                    return false;
+                }
+                if let MessageKind::PackageWarning { package } = kind {
+                    let excluded = self.no_warn_packages.iter().any(|p| p == package || p.replace('-', " ") == *package);
+                    if excluded {
+                        return false;
+                    }
+                }
+                true
+            }
         }
     }
 }
@@ -97,7 +123,7 @@ async fn main() -> io::Result<()> {
         .unwrap_or_else(|| terminal_size::terminal_size().map(|(w, _)| w.0 as usize).unwrap_or(80));
     let opts = RenderOptions { ascii: cli.ascii, color: !cli.no_color, width };
 
-    let filter = Filter { no_warn: cli.no_warn, no_boxes: cli.no_boxes };
+    let filter = Filter::new(cli.no_warn, cli.no_boxes);
     let mut parser = LogParser::new();
     let mut renderer = Renderer::new(io::LineWriter::new(io::stdout()), opts);
 
