@@ -55,16 +55,14 @@ impl FileStack {
 
     /// Scan one already-joined logical line, updating the stack.
     pub fn process_line(&mut self, line: &str) {
-        let chars: Vec<char> = line.chars().collect();
-        let mut i = 0;
-        while i < chars.len() {
-            match chars[i] {
+        for (i, c) in line.char_indices() {
+            match c {
                 '(' => {
-                    let token_start = i + 1;
-                    let token_end = Self::scan_token(&chars, token_start);
-                    let token: String = chars[token_start..token_end].iter().collect();
-                    if looks_like_path(&token) {
-                        self.stack.push(Some(token));
+                    let token_start = i + c.len_utf8();
+                    let token_end = Self::scan_token(line, token_start);
+                    let token = &line[token_start..token_end];
+                    if looks_like_path(token) {
+                        self.stack.push(Some(token.to_string()));
                     } else {
                         self.stack.push(None);
                     }
@@ -74,16 +72,14 @@ impl FileStack {
                 }
                 _ => {}
             }
-            i += 1;
         }
     }
 
-    fn scan_token(chars: &[char], start: usize) -> usize {
-        let mut j = start;
-        while j < chars.len() && chars[j] != '(' && chars[j] != ')' && !chars[j].is_whitespace() {
-            j += 1;
-        }
-        j
+    fn scan_token(line: &str, start: usize) -> usize {
+        line[start..]
+            .find(|c: char| c == '(' || c == ')' || c.is_whitespace())
+            .map(|offset| start + offset)
+            .unwrap_or(line.len())
     }
 }
 
