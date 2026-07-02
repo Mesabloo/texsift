@@ -10,7 +10,7 @@ use texsift::{Category, Event, MessageKind};
 /// Filter and colorize a LaTeX/latexmk build log, scoped to the file each
 /// diagnostic occurred in.
 #[derive(Parser)]
-#[command(name = "texsift")]
+#[command(name = "texsift", version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("TARGET"), ")"))]
 struct Cli {
     /// Log file to read; if omitted, reads from stdin
     file: Option<PathBuf>,
