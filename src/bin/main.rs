@@ -8,7 +8,7 @@ use tokio_util::codec::{FramedRead, LinesCodec};
 
 use texsift::output::{RenderOptions, Renderer};
 use texsift::parser::LogParser;
-use texsift::{Event, MessageKind};
+use texsift::{Category, Event, MessageKind};
 
 /// Filter and colorize a LaTeX/latexmk build log, scoped to the file each
 /// diagnostic occurred in.
@@ -41,18 +41,24 @@ struct Cli {
     width: Option<usize>,
 }
 
-fn should_show(kind: &MessageKind, no_warn: bool, no_boxes: bool) -> bool {
-    use MessageKind::*;
-    match kind {
-        LatexError | PackageError { .. } => true,
-        OverfullHbox { .. } | UnderfullHbox { .. } | OverfullVbox { .. } => !no_boxes,
-        PackageWarning { .. } | BibtexWarning | MissingChar | ShowOutput { .. } => !no_warn,
+struct Filter {
+    no_warn: bool,
+    no_boxes: bool,
+}
+
+impl Filter {
+    fn should_show(&self, kind: &MessageKind) -> bool {
+        match kind.category() {
+            Category::Error => true,
+            Category::OverfullBox | Category::UnderfullBox => !self.no_boxes,
+            Category::Warning => !self.no_warn,
+        }
     }
 }
 
-fn dispatch(event: Event, renderer: &mut Renderer<io::LineWriter<io::Stdout>>, no_warn: bool, no_boxes: bool) {
+fn dispatch(event: Event, renderer: &mut Renderer<io::LineWriter<io::Stdout>>, filter: &Filter) {
     if let Event::Message(m) = &event {
-        if !should_show(&m.kind, no_warn, no_boxes) {
+        if !filter.should_show(&m.kind) {
             return;
         }
     }
@@ -63,18 +69,17 @@ async fn drive<R: AsyncRead + Unpin>(
     reader: R,
     parser: &mut LogParser,
     renderer: &mut Renderer<io::LineWriter<io::Stdout>>,
-    no_warn: bool,
-    no_boxes: bool,
+    filter: &Filter,
 ) -> io::Result<()> {
     let mut framed = FramedRead::new(reader, LinesCodec::new());
     while let Some(line) = framed.next().await {
         let line = line.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         for event in parser.feed(&line) {
-            dispatch(event, renderer, no_warn, no_boxes);
+            dispatch(event, renderer, filter);
         }
     }
     for event in parser.finish() {
-        dispatch(event, renderer, no_warn, no_boxes);
+        dispatch(event, renderer, filter);
     }
     Ok(())
 }
@@ -92,14 +97,15 @@ async fn main() -> io::Result<()> {
         .unwrap_or_else(|| terminal_size::terminal_size().map(|(w, _)| w.0 as usize).unwrap_or(80));
     let opts = RenderOptions { ascii: cli.ascii, color: !cli.no_color, width };
 
+    let filter = Filter { no_warn: cli.no_warn, no_boxes: cli.no_boxes };
     let mut parser = LogParser::new();
     let mut renderer = Renderer::new(io::LineWriter::new(io::stdout()), opts);
 
     if let Some(path) = &cli.file {
         let file = tokio::fs::File::open(path).await?;
-        drive(file, &mut parser, &mut renderer, cli.no_warn, cli.no_boxes).await?;
+        drive(file, &mut parser, &mut renderer, &filter).await?;
     } else {
-        drive(tokio::io::stdin(), &mut parser, &mut renderer, cli.no_warn, cli.no_boxes).await?;
+        drive(tokio::io::stdin(), &mut parser, &mut renderer, &filter).await?;
     }
 
     renderer.finish();

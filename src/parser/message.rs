@@ -1,4 +1,5 @@
 use crate::model::MessageKind;
+use crate::parser::file_stack::looks_like_path;
 
 /// A message produced by [`MessageMatcher`], before the coordinator has
 /// attached the file-stack-derived `file` field (or, for kinds that carry
@@ -12,6 +13,32 @@ pub struct RawMessage {
     pub line_range: Option<(u32, u32)>,
     pub page: Option<u32>,
     pub context: Vec<String>,
+}
+
+impl RawMessage {
+    fn new(kind: MessageKind, text: impl Into<String>) -> Self {
+        Self { kind, text: text.into(), file_override: None, line_range: None, page: None, context: Vec::new() }
+    }
+
+    fn with_file_override(mut self, file_override: Option<String>) -> Self {
+        self.file_override = file_override;
+        self
+    }
+
+    fn with_line_range(mut self, line_range: Option<(u32, u32)>) -> Self {
+        self.line_range = line_range;
+        self
+    }
+
+    fn with_page(mut self, page: Option<u32>) -> Self {
+        self.page = page;
+        self
+    }
+
+    fn with_context(mut self, context: Vec<String>) -> Self {
+        self.context = context;
+        self
+    }
 }
 
 fn is_recognized_event_prefix(line: &str) -> bool {
@@ -28,16 +55,6 @@ fn is_recognized_event_prefix(line: &str) -> bool {
         "Warning--",
     ];
     line.starts_with("l.") || line.starts_with("FiXme") || PREFIXES.iter().any(|p| line.starts_with(p))
-}
-
-fn looks_like_path(token: &str) -> bool {
-    if token.starts_with("./") || token.starts_with('/') {
-        return true;
-    }
-    match token.chars().next() {
-        Some(c) if c.is_alphanumeric() => token.contains('.'),
-        _ => false,
-    }
 }
 
 /// Whether `line` ends an in-progress multi-line warning continuation
@@ -87,20 +104,21 @@ fn try_parse_gcc_style(line: &str) -> Option<(String, u32, String)> {
     Some((path.to_string(), n, msg.to_string()))
 }
 
+/// Strip a `"<prefix><label><sep><rest>"` shape (e.g. `"Package foo Error: "`)
+/// into `(label, rest)`. Returns `None` if `line` doesn't start with
+/// `prefix`, or `sep` isn't found after it.
+fn strip_labeled<'a>(line: &'a str, prefix: &str, sep: &str) -> Option<(&'a str, &'a str)> {
+    let rest = line.strip_prefix(prefix)?;
+    let idx = rest.find(sep)?;
+    Some((&rest[..idx], &rest[idx + sep.len()..]))
+}
+
 fn classify_error_text(rest: &str) -> (MessageKind, String) {
-    if let Some(after) = rest.strip_prefix("Package ") {
-        if let Some(idx) = after.find(" Error: ") {
-            let pkg = after[..idx].to_string();
-            let text = after[idx + " Error: ".len()..].to_string();
-            return (MessageKind::PackageError { package: pkg }, text);
-        }
+    if let Some((pkg, text)) = strip_labeled(rest, "Package ", " Error: ") {
+        return (MessageKind::PackageError { package: pkg.to_string() }, text.to_string());
     }
-    if let Some(after) = rest.strip_prefix("Class ") {
-        if let Some(idx) = after.find(" Error: ") {
-            let pkg = after[..idx].to_string();
-            let text = after[idx + " Error: ".len()..].to_string();
-            return (MessageKind::PackageError { package: pkg }, text);
-        }
+    if let Some((pkg, text)) = strip_labeled(rest, "Class ", " Error: ") {
+        return (MessageKind::PackageError { package: pkg.to_string() }, text.to_string());
     }
     if let Some(text) = rest.strip_prefix("LaTeX Error: ") {
         return (MessageKind::LatexError, text.to_string());
@@ -152,17 +170,11 @@ fn parse_optional_page_and_line(text: &str) -> (String, Option<u32>, Option<u32>
 }
 
 fn try_parse_named_warning(line: &str) -> Option<(String, String)> {
-    if let Some(rest) = line.strip_prefix("Package ") {
-        if let Some(idx) = rest.find(" Warning: ") {
-            return Some((rest[..idx].to_string(), rest[idx + " Warning: ".len()..].to_string()));
-        }
-        return None;
+    if line.starts_with("Package ") {
+        return strip_labeled(line, "Package ", " Warning: ").map(|(pkg, text)| (pkg.to_string(), text.to_string()));
     }
-    if let Some(rest) = line.strip_prefix("Class ") {
-        if let Some(idx) = rest.find(" Warning: ") {
-            return Some((rest[..idx].to_string(), rest[idx + " Warning: ".len()..].to_string()));
-        }
-        return None;
+    if line.starts_with("Class ") {
+        return strip_labeled(line, "Class ", " Warning: ").map(|(pkg, text)| (pkg.to_string(), text.to_string()));
     }
     if let Some(idx) = line.find(" Warning: ") {
         let pkg = &line[..idx];
@@ -305,22 +317,11 @@ impl MessageMatcher {
             State::Idle => {}
             State::ErrorCtx { partial, .. } => Self::finalize_error(*partial, &mut out),
             State::Warning { package, buffer } => Self::finalize_warning(package, buffer, &mut out),
-            State::BibtexPending { text } => out.push(RawMessage {
-                kind: MessageKind::BibtexWarning,
-                text,
-                file_override: None,
-                line_range: None,
-                page: None,
-                context: vec![],
-            }),
-            State::ShowCollecting { first, context } => out.push(RawMessage {
-                kind: MessageKind::ShowOutput { command: String::new() },
-                text: first.unwrap_or_default(),
-                file_override: None,
-                line_range: None,
-                page: None,
-                context,
-            }),
+            State::BibtexPending { text } => out.push(RawMessage::new(MessageKind::BibtexWarning, text)),
+            State::ShowCollecting { first, context } => out.push(
+                RawMessage::new(MessageKind::ShowOutput { command: String::new() }, first.unwrap_or_default())
+                    .with_context(context),
+            ),
         }
         out
     }
@@ -345,47 +346,19 @@ impl MessageMatcher {
             return;
         }
         if line.starts_with("Missing character:") {
-            out.push(RawMessage {
-                kind: MessageKind::MissingChar,
-                text: line.to_string(),
-                file_override: None,
-                line_range: None,
-                page: None,
-                context: vec![],
-            });
+            out.push(RawMessage::new(MessageKind::MissingChar, line));
             return;
         }
         if let Some((pt, lr)) = try_parse_overfull_hbox(line) {
-            out.push(RawMessage {
-                kind: MessageKind::OverfullHbox { pt },
-                text: line.to_string(),
-                file_override: None,
-                line_range: lr,
-                page: None,
-                context: vec![],
-            });
+            out.push(RawMessage::new(MessageKind::OverfullHbox { pt }, line).with_line_range(lr));
             return;
         }
         if let Some((badness, lr)) = try_parse_underfull_hbox(line) {
-            out.push(RawMessage {
-                kind: MessageKind::UnderfullHbox { badness },
-                text: line.to_string(),
-                file_override: None,
-                line_range: lr,
-                page: None,
-                context: vec![],
-            });
+            out.push(RawMessage::new(MessageKind::UnderfullHbox { badness }, line).with_line_range(lr));
             return;
         }
         if let Some((pt, lr)) = try_parse_overfull_vbox(line) {
-            out.push(RawMessage {
-                kind: MessageKind::OverfullVbox { pt },
-                text: line.to_string(),
-                file_override: None,
-                line_range: lr,
-                page: None,
-                context: vec![],
-            });
+            out.push(RawMessage::new(MessageKind::OverfullVbox { pt }, line).with_line_range(lr));
             return;
         }
         if let Some(text) = line.strip_prefix("Warning--") {
@@ -425,14 +398,7 @@ impl MessageMatcher {
         // silently reattributing the message to whatever file happens to be
         // open by the time something finally closes it.
         if rest.contains("Fatal error occurred") {
-            out.push(RawMessage {
-                kind,
-                text,
-                file_override: None,
-                line_range: None,
-                page: None,
-                context: vec![],
-            });
+            out.push(RawMessage::new(kind, text));
             return;
         }
         self.state = State::ErrorCtx {
@@ -456,14 +422,7 @@ impl MessageMatcher {
     /// parsed.
     fn start_gcc_error(file: String, n: u32, msg: &str, out: &mut Vec<RawMessage>) {
         let (kind, text) = classify_error_text(msg);
-        out.push(RawMessage {
-            kind,
-            text,
-            file_override: Some(file),
-            line_range: Some((n, n)),
-            page: None,
-            context: vec![],
-        });
+        out.push(RawMessage::new(kind, text).with_file_override(Some(file)).with_line_range(Some((n, n))));
     }
 
     fn step_error(&mut self, mut partial: ErrorPartial, phase: ErrorPhase, line: &str, out: &mut Vec<RawMessage>) {
@@ -569,14 +528,12 @@ impl MessageMatcher {
                 )),
             }
         }
-        out.push(RawMessage {
-            kind: partial.kind,
-            text: partial.text,
-            file_override: partial.file_override,
-            line_range: partial.line_range,
-            page: None,
-            context: partial.context,
-        });
+        out.push(
+            RawMessage::new(partial.kind, partial.text)
+                .with_file_override(partial.file_override)
+                .with_line_range(partial.line_range)
+                .with_context(partial.context),
+        );
     }
 
     fn step_warning(&mut self, package: String, buffer: String, line: &str, out: &mut Vec<RawMessage>) {
@@ -599,14 +556,11 @@ impl MessageMatcher {
 
     fn finalize_warning(package: String, buffer: String, out: &mut Vec<RawMessage>) {
         let (text, line_no, page) = parse_optional_page_and_line(&buffer);
-        out.push(RawMessage {
-            kind: MessageKind::PackageWarning { package },
-            text,
-            file_override: None,
-            line_range: line_no.map(|n| (n, n)),
-            page,
-            context: vec![],
-        });
+        out.push(
+            RawMessage::new(MessageKind::PackageWarning { package }, text)
+                .with_line_range(line_no.map(|n| (n, n)))
+                .with_page(page),
+        );
     }
 
     fn step_bibtex(&mut self, text: String, line: &str, out: &mut Vec<RawMessage>) {
@@ -614,26 +568,16 @@ impl MessageMatcher {
             if let Some(idx) = rest.find(" of file ") {
                 let n: u32 = rest[..idx].trim().parse().unwrap_or(0);
                 let file = rest[idx + " of file ".len()..].trim().to_string();
-                out.push(RawMessage {
-                    kind: MessageKind::BibtexWarning,
-                    text,
-                    file_override: Some(file),
-                    line_range: Some((n, n)),
-                    page: None,
-                    context: vec![],
-                });
+                out.push(
+                    RawMessage::new(MessageKind::BibtexWarning, text)
+                        .with_file_override(Some(file))
+                        .with_line_range(Some((n, n))),
+                );
                 self.state = State::Idle;
                 return;
             }
         }
-        out.push(RawMessage {
-            kind: MessageKind::BibtexWarning,
-            text,
-            file_override: None,
-            line_range: None,
-            page: None,
-            context: vec![],
-        });
+        out.push(RawMessage::new(MessageKind::BibtexWarning, text));
         self.state = State::Idle;
         self.dispatch_idle(line, out);
     }
@@ -641,14 +585,11 @@ impl MessageMatcher {
     fn step_show(&mut self, first: Option<String>, mut context: Vec<String>, line: &str, out: &mut Vec<RawMessage>) {
         if let Some((n, after)) = try_parse_line_marker(line) {
             let command = extract_show_command(&after);
-            out.push(RawMessage {
-                kind: MessageKind::ShowOutput { command },
-                text: first.unwrap_or_default(),
-                file_override: None,
-                line_range: Some((n, n)),
-                page: None,
-                context,
-            });
+            out.push(
+                RawMessage::new(MessageKind::ShowOutput { command }, first.unwrap_or_default())
+                    .with_line_range(Some((n, n)))
+                    .with_context(context),
+            );
             self.state = State::Idle;
             return;
         }

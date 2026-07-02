@@ -2,7 +2,7 @@ use std::io::Write;
 
 use colored::{Color, Colorize};
 
-use crate::model::{Event, LogMessage, MessageKind, PassKind};
+use crate::model::{Category, Event, LogMessage, MessageKind, PassKind};
 
 #[derive(Debug, Clone, Copy)]
 pub struct RenderOptions {
@@ -15,6 +15,13 @@ impl Default for RenderOptions {
     fn default() -> Self {
         Self { ascii: false, color: true, width: 80 }
     }
+}
+
+/// Whether `package` renders as a bare label (`LaTeX:`, `FiXme:`, or any
+/// multi-word tag like `pdfTeX (ext4):`) rather than the usual `Package foo:`
+/// form.
+fn label_is_bare(package: &str) -> bool {
+    package == "LaTeX" || package == "FiXme" || package.contains(' ')
 }
 
 fn glyph_and_color(kind: &MessageKind, ascii: bool) -> (&'static str, Color) {
@@ -155,13 +162,11 @@ impl<W: Write> Renderer<W> {
     }
 
     fn tally(&mut self, kind: &MessageKind) {
-        match kind {
-            MessageKind::LatexError | MessageKind::PackageError { .. } => self.error_count += 1,
-            MessageKind::OverfullHbox { .. } | MessageKind::OverfullVbox { .. } => self.overfull_count += 1,
-            MessageKind::UnderfullHbox { .. } => self.underfull_count += 1,
-            MessageKind::PackageWarning { .. } | MessageKind::MissingChar | MessageKind::BibtexWarning | MessageKind::ShowOutput { .. } => {
-                self.warning_count += 1
-            }
+        match kind.category() {
+            Category::Error => self.error_count += 1,
+            Category::OverfullBox => self.overfull_count += 1,
+            Category::UnderfullBox => self.underfull_count += 1,
+            Category::Warning => self.warning_count += 1,
         }
     }
 
@@ -230,7 +235,7 @@ impl<W: Write> Renderer<W> {
     }
 
     fn render_label_plain(&self, package: &str) -> String {
-        if package == "LaTeX" || package == "FiXme" || package.contains(' ') {
+        if label_is_bare(package) {
             package.to_string()
         } else {
             format!("Package {package}")
@@ -238,7 +243,7 @@ impl<W: Write> Renderer<W> {
     }
 
     fn render_label(&self, package: &str) -> String {
-        if package == "LaTeX" || package == "FiXme" || package.contains(' ') {
+        if label_is_bare(package) {
             self.paint_bold(package, Color::White)
         } else {
             format!("{} {}", self.paint(&"Package".to_string(), Color::BrightBlack), self.paint_bold(package, Color::White))

@@ -1,4 +1,4 @@
-fn looks_like_path(token: &str) -> bool {
+pub(crate) fn looks_like_path(token: &str) -> bool {
     if token.starts_with("./") || token.starts_with('/') {
         return true;
     }

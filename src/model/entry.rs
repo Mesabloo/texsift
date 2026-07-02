@@ -18,6 +18,30 @@ pub enum MessageKind {
     ShowOutput { command: String },
 }
 
+/// The broad class a [`MessageKind`] falls into, for callers that only care
+/// about the error/overfull/underfull/warning grouping (e.g. CLI filtering,
+/// summary tallying) rather than the specific variant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Category {
+    Error,
+    OverfullBox,
+    UnderfullBox,
+    Warning,
+}
+
+impl MessageKind {
+    pub fn category(&self) -> Category {
+        match self {
+            MessageKind::LatexError | MessageKind::PackageError { .. } => Category::Error,
+            MessageKind::OverfullHbox { .. } | MessageKind::OverfullVbox { .. } => Category::OverfullBox,
+            MessageKind::UnderfullHbox { .. } => Category::UnderfullBox,
+            MessageKind::PackageWarning { .. } | MessageKind::BibtexWarning | MessageKind::MissingChar | MessageKind::ShowOutput { .. } => {
+                Category::Warning
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct LogMessage {
     pub kind: MessageKind,
