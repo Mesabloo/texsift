@@ -86,6 +86,35 @@ fn terminates_warning_continuation(line: &str) -> bool {
     is_recognized_event_prefix(line)
 }
 
+/// Strip a leading `(package)` continuation marker, e.g. `"(natbib)
+/// Rerun to get citations correct."` -> `"Rerun to get citations correct."`.
+/// Some packages (natbib, biblatex, rerunfilecheck, ...) pad continuation
+/// lines of their own warnings and errors with the package name in parens,
+/// mimicking the column where `"Package foo Warning: "` would start - it's a
+/// visual alignment marker, not part of the message text, and must not be
+/// kept verbatim.
+///
+/// Only matches a genuine `(word)` marker (word not looking like a file
+/// path, per the same heuristic [`terminates_warning_continuation`] uses to
+/// tell this apart from a real file open) - returns `None` for anything
+/// else, so callers can distinguish "no marker here" from "marker stripped
+/// down to an empty remainder".
+fn strip_pkg_annotation(line: &str) -> Option<&str> {
+    let rest = line.trim_start().strip_prefix('(')?;
+    let token_end = rest.find(|c: char| c == '(' || c == ')' || c.is_whitespace()).unwrap_or(rest.len());
+    if rest[token_end..].starts_with(')') && !looks_like_path(&rest[..token_end]) {
+        Some(&rest[token_end + 1..])
+    } else {
+        None
+    }
+}
+
+/// [`strip_pkg_annotation`], but returning `line` unchanged when there's no
+/// marker to strip.
+fn strip_warning_annotation(line: &str) -> &str {
+    strip_pkg_annotation(line).unwrap_or(line)
+}
+
 fn try_parse_gcc_style(line: &str) -> Option<(String, u32, String)> {
     let first_colon = line.find(':')?;
     let path = &line[..first_colon];
@@ -473,6 +502,26 @@ impl MessageMatcher {
                     };
                     return;
                 }
+                // A `(package)`-annotated line immediately following the `!`
+                // header (before any real context has been collected) is a
+                // continuation of the error's own message text, not a file
+                // open or a context line - same convention some packages use
+                // for multi-line warnings (see `strip_pkg_annotation`). It
+                // must be checked before `is_recognized_event_prefix`, which
+                // would otherwise treat the leading `(` as a new file open
+                // and truncate the message, silently discarding everything
+                // after it - including the eventual `l.N` location.
+                if partial.context.is_empty() {
+                    if let Some(rest) = strip_pkg_annotation(line) {
+                        partial.text.push(' ');
+                        partial.text.push_str(rest.trim());
+                        self.state = State::ErrorCtx {
+                            partial: Box::new(partial),
+                            phase: ErrorPhase::ContextLines { pending: None },
+                        };
+                        return;
+                    }
+                }
                 if is_recognized_event_prefix(line) {
                     Self::finalize_error(partial, out);
                     self.state = State::Idle;
@@ -550,7 +599,7 @@ impl MessageMatcher {
         }
         let mut new_buffer = buffer;
         new_buffer.push(' ');
-        new_buffer.push_str(line.trim());
+        new_buffer.push_str(strip_warning_annotation(line).trim());
         self.state = State::Warning { package, buffer: new_buffer };
     }
 
@@ -771,6 +820,40 @@ mod tests {
     }
 
     #[test]
+    fn bang_error_message_folds_package_annotation_continuations() {
+        // Regression test: like a warning, a package's own bang error
+        // message can wrap across physical lines using the same
+        // "(package)" padding convention (real example: amsmath's
+        // mismatched-environment error). Before the fix,
+        // `is_recognized_event_prefix` treated the leading "(" as a new
+        // file open, finalizing the error immediately with only the first
+        // line of text and no line_range, then silently dropping
+        // everything after it - including the real `l.N` location.
+        let msgs = feed_all(&[
+            "! Package amsmath Error: \\begin{align} on input line 12 ended by",
+            "(amsmath)                \\end{equation}. Check for a missing or",
+            "(amsmath)                mismatched \\end command.",
+            "",
+            "See the amsmath package documentation for explanation.",
+            "Type  H <return>  for immediate help.",
+            " ...                                              ",
+            "",
+            "l.14 \\end{equation}",
+            "                    ",
+        ]);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(
+            msgs[0].kind,
+            MessageKind::PackageError { package: "amsmath".to_string() }
+        );
+        assert_eq!(
+            msgs[0].text,
+            "\\begin{align} on input line 12 ended by \\end{equation}. Check for a missing or mismatched \\end command."
+        );
+        assert_eq!(msgs[0].line_range, Some((14, 14)));
+    }
+
+    #[test]
     fn fatal_error_has_no_context_and_finalizes_immediately() {
         // The engine's shutdown banner never carries an `l.N`/context, unlike
         // ordinary bang errors - it must not sit around waiting for one,
@@ -892,13 +975,29 @@ mod tests {
         // across a second physical line prefixed with the package name in
         // parens, e.g. "(examplepkg)                more text.". This isn't
         // a file open - `examplepkg` doesn't look like a path - so it must
-        // not be mistaken for one and cut the warning short.
+        // not be mistaken for one and cut the warning short. The "(examplepkg)"
+        // marker itself is just column-alignment padding, not part of the
+        // message, and must not leak into the joined text.
         let msgs = feed_all(&[
             "Package examplepkg Warning: Citation(s) may have changed.",
             "(examplepkg)                Rerun to get citations correct.",
         ]);
         assert_eq!(msgs.len(), 1);
-        assert_eq!(msgs[0].text, "Citation(s) may have changed. (examplepkg) Rerun to get citations correct.");
+        assert_eq!(msgs[0].text, "Citation(s) may have changed. Rerun to get citations correct.");
+    }
+
+    #[test]
+    fn warning_continuation_strips_package_annotation_across_multiple_lines() {
+        // Regression test: biblatex wraps this warning across three physical
+        // lines, each continuation prefixed with "(biblatex)" padding. Every
+        // occurrence of the marker must be stripped, not just the first.
+        let msgs = feed_all(&[
+            "Package biblatex Warning: Please (re)run Biber on the file:",
+            "(biblatex)                thesis",
+            "(biblatex)                and rerun LaTeX afterwards.",
+        ]);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].text, "Please (re)run Biber on the file: thesis and rerun LaTeX afterwards.");
     }
 
     #[test]
