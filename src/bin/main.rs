@@ -83,10 +83,10 @@ impl Filter {
 }
 
 fn dispatch(event: Event, renderer: &mut Renderer<io::LineWriter<io::Stdout>>, filter: &Filter) {
-    if let Event::Message(m) = &event {
-        if !filter.should_show(&m.kind) {
-            return;
-        }
+    if let Event::Message(m) = &event
+        && !filter.should_show(&m.kind)
+    {
+        return;
     }
     renderer.handle(event);
 }

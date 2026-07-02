@@ -26,10 +26,8 @@ impl FileStack {
 
     /// The innermost currently-open file path, or `""` if none is open.
     pub fn current_file(&self) -> &str {
-        for entry in self.stack.iter().rev() {
-            if let Some(path) = entry {
-                return path;
-            }
+        if let Some(path) = self.stack.iter().rev().flatten().next() {
+            return path;
         }
         ""
     }

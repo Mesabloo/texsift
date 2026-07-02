@@ -100,11 +100,11 @@ impl LogParser {
             out.push(Event::PassBoundary(kind));
             return;
         }
-        if !self.seen_run_number {
-            if let Some(kind) = try_parse_engine_banner(line) {
-                out.push(Event::PassBoundary(kind));
-                return;
-            }
+        if !self.seen_run_number
+            && let Some(kind) = try_parse_engine_banner(line)
+        {
+            out.push(Event::PassBoundary(kind));
+            return;
         }
         if let Some(path) = try_parse_pdf_built(line) {
             out.push(Event::PdfBuilt { path });

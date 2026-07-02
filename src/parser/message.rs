@@ -174,15 +174,15 @@ fn extract_marker(text: &str, marker: &str) -> (String, Option<u32>) {
         let num_end = after
             .find(|c: char| !c.is_ascii_digit())
             .unwrap_or(after.len());
-        if num_end > 0 {
-            if let Ok(n) = after[..num_end].parse::<u32>() {
-                let mut rest = &after[num_end..];
-                if let Some(stripped) = rest.strip_prefix('.') {
-                    rest = stripped;
-                }
-                let combined = format!("{}{}", &text[..idx], rest);
-                return (combined, Some(n));
+        if num_end > 0
+            && let Ok(n) = after[..num_end].parse::<u32>()
+        {
+            let mut rest = &after[num_end..];
+            if let Some(stripped) = rest.strip_prefix('.') {
+                rest = stripped;
             }
+            let combined = format!("{}{}", &text[..idx], rest);
+            return (combined, Some(n));
         }
     }
     (text.to_string(), None)
@@ -309,8 +309,9 @@ enum ErrorPhase {
     SourceContinuation,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 enum State {
+    #[default]
     Idle,
     ErrorCtx { partial: Box<ErrorPartial>, phase: ErrorPhase },
     Warning { package: String, buffer: String },
@@ -321,12 +322,6 @@ enum State {
 #[derive(Debug, Default)]
 pub struct MessageMatcher {
     state: State,
-}
-
-impl Default for State {
-    fn default() -> Self {
-        State::Idle
-    }
 }
 
 impl MessageMatcher {
@@ -408,7 +403,6 @@ impl MessageMatcher {
                 first: Some(rest.to_string()),
                 context: vec![],
             };
-            return;
         }
         // Anything else (Info lines, LaTeX Font Info, LuaLaTeX loader noise,
         // Latexmk wrapper lines, blank lines, etc.) is silently ignored.
@@ -512,16 +506,16 @@ impl MessageMatcher {
                 // would otherwise treat the leading `(` as a new file open
                 // and truncate the message, silently discarding everything
                 // after it - including the eventual `l.N` location.
-                if partial.context.is_empty() {
-                    if let Some(rest) = strip_pkg_annotation(line) {
-                        partial.text.push(' ');
-                        partial.text.push_str(rest.trim());
-                        self.state = State::ErrorCtx {
-                            partial: Box::new(partial),
-                            phase: ErrorPhase::ContextLines { pending: None },
-                        };
-                        return;
-                    }
+                if partial.context.is_empty()
+                    && let Some(rest) = strip_pkg_annotation(line)
+                {
+                    partial.text.push(' ');
+                    partial.text.push_str(rest.trim());
+                    self.state = State::ErrorCtx {
+                        partial: Box::new(partial),
+                        phase: ErrorPhase::ContextLines { pending: None },
+                    };
+                    return;
                 }
                 if is_recognized_event_prefix(line) {
                     Self::finalize_error(partial, out);
@@ -614,18 +608,18 @@ impl MessageMatcher {
     }
 
     fn step_bibtex(&mut self, text: String, line: &str, out: &mut Vec<RawMessage>) {
-        if let Some(rest) = line.strip_prefix("--line ") {
-            if let Some(idx) = rest.find(" of file ") {
-                let n: u32 = rest[..idx].trim().parse().unwrap_or(0);
-                let file = rest[idx + " of file ".len()..].trim().to_string();
-                out.push(
-                    RawMessage::new(MessageKind::BibtexWarning, text)
-                        .with_file_override(Some(file))
-                        .with_line_range(Some((n, n))),
-                );
-                self.state = State::Idle;
-                return;
-            }
+        if let Some(rest) = line.strip_prefix("--line ")
+            && let Some(idx) = rest.find(" of file ")
+        {
+            let n: u32 = rest[..idx].trim().parse().unwrap_or(0);
+            let file = rest[idx + " of file ".len()..].trim().to_string();
+            out.push(
+                RawMessage::new(MessageKind::BibtexWarning, text)
+                    .with_file_override(Some(file))
+                    .with_line_range(Some((n, n))),
+            );
+            self.state = State::Idle;
+            return;
         }
         out.push(RawMessage::new(MessageKind::BibtexWarning, text));
         self.state = State::Idle;

@@ -235,7 +235,7 @@ impl<W: Write> Renderer<W> {
         if label_is_bare(package) {
             self.paint_bold(package, Color::White)
         } else {
-            format!("{} {}", self.paint(&"Package".to_string(), Color::BrightBlack), self.paint_bold(package, Color::White))
+            format!("{} {}", self.paint("Package", Color::BrightBlack), self.paint_bold(package, Color::White))
         }
     }
 
@@ -282,7 +282,7 @@ impl<W: Write> Renderer<W> {
         let dash = if self.opts.ascii { "-" } else { "─" };
         let prefix = format!("{}{} {} ", dash, dash, label);
         let prefix_len = prefix.chars().count();
-        let fill = if prefix_len < self.opts.width { self.opts.width - prefix_len } else { 0 };
+        let fill = self.opts.width.saturating_sub(prefix_len);
         let line = format!("{prefix}{}", dash.repeat(fill));
         writeln!(self.out, "{}", self.paint(&line, Color::BrightBlack)).ok();
         self.printed_anything = true;
