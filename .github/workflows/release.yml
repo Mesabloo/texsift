@@ -21,12 +21,14 @@ jobs:
       contents: write
     outputs:
       tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - name: Read version from Cargo.toml
         id: version
         run: |
           VERSION=$(grep -m1 '^version' Cargo.toml | sed -E 's/version *= *"(.*)"/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
       - name: Create release if it doesn't already exist
         if: github.event_name == 'push'
@@ -38,13 +40,6 @@ jobs:
             echo "Release $TAG already exists, skipping creation"
           else
             gh release create "$TAG" --title "$TAG" --target "${{ github.sha }}" --generate-notes
-            # Linux/macOS binaries are uploaded as raw files, not archives, so
-            # the executable bit doesn't survive the download (GitHub serves
-            # assets over plain HTTP, which carries no permission metadata) -
-            # prepend a heads-up to the auto-generated notes.
-            NOTE='**Note:** the Linux/macOS binaries are uploaded as raw files (not archived), so the executable bit does not survive the download. Run `chmod +x` on the binary before using it.'
-            BODY=$(gh release view "$TAG" --json body -q .body)
-            gh release edit "$TAG" --notes "$NOTE"$'\n\n'"$BODY"
           fi
 
   build-and-test:
@@ -67,20 +62,41 @@ jobs:
           echo "triple=$(rustc -vV | sed -n 's/^host: //p')" >> "$GITHUB_OUTPUT"
       - name: Build and test (release profile)
         run: cargo test --release --verbose
-      - name: Package binary
+      - name: Stage archive contents
+        id: stage
         shell: bash
         run: |
           BIN_NAME=texsift
           EXT=""
           if [ "${{ runner.os }}" = "Windows" ]; then EXT=".exe"; fi
-          cp "target/release/${BIN_NAME}${EXT}" "${BIN_NAME}-${{ steps.target.outputs.triple }}${EXT}"
-      - name: Upload binary to release
+          STAGE="texsift-${{ needs.release.outputs.version }}-${{ steps.target.outputs.triple }}"
+          mkdir -p "$STAGE"
+          cp "target/release/${BIN_NAME}${EXT}" "$STAGE/"
+          printf '%s\n' \
+            "texsift ${{ needs.release.outputs.version }} (${{ steps.target.outputs.triple }})" \
+            "" \
+            "Installation:" \
+            "  1. Move \`texsift\` (or \`texsift.exe\` on Windows) to a directory on" \
+            "     your PATH, e.g. \`~/.local/bin\` or \`/usr/local/bin\`." \
+            "  2. Run \`texsift --help\` to confirm it works." \
+            "" \
+            "https://github.com/Mesabloo/texsift" \
+            > "$STAGE/INSTALL.txt"
+          echo "stage=$STAGE" >> "$GITHUB_OUTPUT"
+      - name: Archive (tar.gz)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: tar -czf "${{ steps.stage.outputs.stage }}.tar.gz" "${{ steps.stage.outputs.stage }}"
+      - name: Archive (zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path "${{ steps.stage.outputs.stage }}" -DestinationPath "${{ steps.stage.outputs.stage }}.zip" -Force
+      - name: Upload archive to release
         if: github.event_name == 'push'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          BIN_NAME=texsift
-          EXT=""
-          if [ "${{ runner.os }}" = "Windows" ]; then EXT=".exe"; fi
-          gh release upload "${{ needs.release.outputs.tag }}" "${BIN_NAME}-${{ steps.target.outputs.triple }}${EXT}" --clobber
+          EXT="tar.gz"
+          if [ "${{ runner.os }}" = "Windows" ]; then EXT="zip"; fi
+          gh release upload "${{ needs.release.outputs.tag }}" "${{ steps.stage.outputs.stage }}.${EXT}" --clobber
