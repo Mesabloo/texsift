@@ -66,9 +66,9 @@ fn ascii_flag_swaps_glyphs() {
     assert!(ok);
     assert!(stdout.contains('x'), "ascii error glyph should appear for the hard errors in test2.log");
     assert!(!stdout.contains('✕'));
-    assert!(!stdout.contains('⚠'));
-    assert!(!stdout.contains('»'));
-    assert!(!stdout.contains('«'));
+    assert!(!stdout.contains('▲'));
+    assert!(!stdout.contains('■'));
+    assert!(!stdout.contains('□'));
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn width_flag_controls_separator_length() {
 fn bare_no_warn_suppresses_every_warning() {
     let (ok, stdout) = run_with_args(&["--no-color", "--no-warn", &sample_path("test6.log")]);
     assert!(ok);
-    assert!(!stdout.contains('⚠'), "bare --no-warn should suppress every warning");
+    assert!(!stdout.contains('▲'), "bare --no-warn should suppress every warning");
 }
 
 #[test]
@@ -98,7 +98,7 @@ fn no_warn_with_package_value_suppresses_only_that_package() {
     let (ok, with_flag) = run_with_args(&["--no-color", "--no-warn=pdf-backend", &sample_path("test6.log")]);
     assert!(ok);
     assert!(!with_flag.contains("pdf backend"), "pdf backend warnings should be suppressed");
-    assert!(with_flag.contains('⚠'), "other warnings should still be shown");
+    assert!(with_flag.contains('▲'), "other warnings should still be shown");
 }
 
 #[test]
@@ -107,8 +107,8 @@ fn no_warn_takes_a_comma_separated_package_list() {
         run_with_args(&["--no-color", "--no-warn=pdf-backend,LaTeX", &sample_path("test6.log")]);
     assert!(ok);
     assert!(!stdout.contains("pdf backend"));
-    assert!(!stdout.contains("⚠ LaTeX:"));
-    assert!(stdout.contains("⚠ Package scrbook:"), "unrelated package warnings should still be shown");
+    assert!(!stdout.contains("▲ LaTeX:"));
+    assert!(stdout.contains("▲ Package scrbook:"), "unrelated package warnings should still be shown");
 }
 
 #[test]

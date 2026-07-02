@@ -56,13 +56,21 @@ kind, colored appropriately. Two themes are supported:
 | Kind | Glyph | Color |
 |---|---|---|
 | Error | `✕` | Bright red, bold |
-| Warning | `⚠` | Yellow |
-| Overfull | `»` | Magenta |
-| Underfull | `«` | Magenta |
-| Missing char | `⚠` | Yellow |
-| Show output | `⊢` | Blue |
+| Warning | `▲` | Yellow |
+| Overfull | `■` | Magenta |
+| Underfull | `□` | Magenta |
+| Missing char | `▲` | Yellow |
+| Show output | `»` | Blue |
 
-The `»`/`«` glyphs suggest overflow and underflow directionally.
+The `■`/`□` glyphs echo TeX's own "box" terminology (hbox/vbox): filled for
+a box with too much content (overfull), hollow for one with too little
+(underfull). The `»` glyph for `\show` output echoes the `> ` prefix TeX
+itself writes before that output in the raw log. The warning glyph is a
+solid triangle rather than the `⚠` warning sign: `⚠` is in Unicode's emoji
+data set, so plenty of terminal fonts render it as a wide, colorful emoji
+glyph instead of the narrow text glyph the renderer's column math assumes;
+`▲` (Geometric Shapes, same block as `■`/`□`) is never given emoji
+treatment.
 
 **ASCII (`--ascii`)**
 
@@ -70,10 +78,15 @@ The `»`/`«` glyphs suggest overflow and underflow directionally.
 |---|---|---|
 | Error | `x` | Bright red, bold |
 | Warning | `!` | Yellow |
-| Overfull | `>` | Magenta |
-| Underfull | `<` | Magenta |
+| Overfull | `O` | Magenta |
+| Underfull | `U` | Magenta |
 | Missing char | `!` | Yellow |
-| Show output | `?` | Blue |
+| Show output | `>` | Blue |
+
+Overfull/Underfull's ASCII fallback is mnemonic (first letter of the word)
+rather than a shape - plain ASCII has no character that reads as a filled or
+hollow square the way `■`/`□` do. Show output's ASCII fallback is `>` to
+match its Unicode counterpart, both echoing the real log's `> ` prefix.
 
 The two flags are aliases. Colors remain the same regardless of theme.
 
@@ -85,28 +98,28 @@ The two flags are aliases. Colors remain the same regardless of theme.
 
 ```
 ./intro.tex
-  ⚠ Package natbib: Citation `compcert' undefined  (line 8, page 1)
-  ⚠ Package natbib: Citation `cakeml' undefined  (line 8, page 1)
-  ⚠ LaTeX: Reference `lastpage' undefined  (line 13, page 1)
-  » Overfull \hbox 13.30pt too wide  (output active)
-  « Underfull \hbox badness 10000  (output active)
+  ▲ Package natbib: Citation `compcert' undefined  (line 8, page 1)
+  ▲ Package natbib: Citation `cakeml' undefined  (line 8, page 1)
+  ▲ LaTeX: Reference `lastpage' undefined  (line 13, page 1)
+  ■ Overfull \hbox 13.30pt too wide  (output active)
+  □ Underfull \hbox badness 10000  (output active)
 
   ./PingPongs.tla
-    » Overfull \hbox 53.33pt too wide  (lines 2–3)
-    » Overfull \hbox 34.43pt too wide  (lines 3–5)
+    ■ Overfull \hbox 53.33pt too wide  (lines 2–3)
+    ■ Overfull \hbox 34.43pt too wide  (lines 3–5)
 
 ./guarded.tex
-  ⚠ FiXme: 'A channel serving a process involving several instances…'  (line 48)
+  ▲ FiXme: 'A channel serving a process involving several instances…'  (line 48)
 
 ── bibtex ──────────────────────────────────────────────────────────────────────
 
 generic.bib
-  ⚠ BibTeX: entry type for "rocq" isn't style-file defined  (line 322)
+  ▲ BibTeX: entry type for "rocq" isn't style-file defined  (line 322)
 
 ── pdflatex ────────────────────────────────────────────────────────────────────
 
 ./main.aux
-  ⚠ LaTeX: Label `ex:algorithm_semantics' multiply defined
+  ▲ LaTeX: Label `ex:algorithm_semantics' multiply defined
 ```
 
 No summary footer is printed when reading from stdin.
@@ -219,7 +232,7 @@ l.10 \show\textbf
 Rendered (first `> ` line becomes the main text; remaining lines under `│`):
 ```
 ./main.tex
-  ⊢ \textbf=macro:  (line 10)
+  » \textbf=macro:  (line 10)
   │ #1->\protect \textbf  {#1}.
 ```
 
@@ -553,11 +566,11 @@ indentation there is.
 
 ```
 ./intro.tex
-  ⚠ Package natbib: Citation `compcert' undefined  (line 8, page 1)
-  » Overfull \hbox 13.30pt too wide  (output active)
+  ▲ Package natbib: Citation `compcert' undefined  (line 8, page 1)
+  ■ Overfull \hbox 13.30pt too wide  (output active)
 
 ./PingPongs.tla
-  » Overfull \hbox 53.33pt too wide  (lines 2–3)
+  ■ Overfull \hbox 53.33pt too wide  (lines 2–3)
 ```
 
 **Color scheme** (same in both Unicode and ASCII modes):
@@ -566,13 +579,13 @@ indentation there is.
 |---|---|
 | File path | Green |
 | Error glyph (`✕` / `x`) | Bright red, bold |
-| Warning glyph (`⚠` / `!`) | Yellow |
-| Overfull glyph (`»` / `>`) | Magenta |
-| Underfull glyph (`«` / `<`) | Magenta |
+| Warning glyph (`▲` / `!`) | Yellow |
+| Overfull glyph (`■` / `O`) | Magenta |
+| Underfull glyph (`□` / `U`) | Magenta |
 | `Package` / `Class` qualifier | Bright black (dimmed) |
 | Package / class name | Bold |
 | `│` / `|` hint continuation prefix | Bright red (matches error) |
-| Show output glyph (`⊢` / `?`) | Blue |
+| Show output glyph (`»` / `>`) | Blue |
 | Location `(line N, page N)` | Bright black (dark gray) |
 | Pass separator | Bright black (always, including first pass) |
 

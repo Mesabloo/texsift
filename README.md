@@ -57,7 +57,7 @@ $ texsift build/main.log
 ── pdflatex ────────────────────────────────────────────────────────────────────
 
 ./main.tex
-  « Underfull \hbox badness 10000  (line 42)
+  □ Underfull \hbox badness 10000  (line 42)
   ✕ Missing $ inserted.  (line 87)
   │ <inserted text> $
   ✕ Display math should end with $$.  (line 87)

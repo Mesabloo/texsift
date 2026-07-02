@@ -31,13 +31,20 @@ fn glyph_and_color(kind: &MessageKind, ascii: bool) -> (&'static str, Color) {
             (if ascii { "x" } else { "✕" }, Color::BrightRed)
         }
         MessageKind::PackageWarning { .. } | MessageKind::MissingChar | MessageKind::BibtexWarning => {
-            (if ascii { "!" } else { "⚠" }, Color::Yellow)
+            // A solid triangle rather than the `⚠` warning sign: `⚠` is in
+            // Unicode's emoji data set, so plenty of terminal fonts render it
+            // as a wide, colorful emoji glyph instead of the narrow text
+            // glyph the renderer's column math assumes. `▲` (Geometric
+            // Shapes, same block as `■`/`□`) is never given emoji treatment.
+            (if ascii { "!" } else { "▲" }, Color::Yellow)
         }
         MessageKind::OverfullHbox { .. } | MessageKind::OverfullVbox { .. } => {
-            (if ascii { ">" } else { "»" }, Color::Magenta)
+            (if ascii { "O" } else { "■" }, Color::Magenta)
         }
-        MessageKind::UnderfullHbox { .. } => (if ascii { "<" } else { "«" }, Color::Magenta),
-        MessageKind::ShowOutput { .. } => (if ascii { "?" } else { "⊢" }, Color::Blue),
+        MessageKind::UnderfullHbox { .. } => (if ascii { "U" } else { "□" }, Color::Magenta),
+        // `»` echoes the `> ` prefix TeX itself writes before `\show` output
+        // in the raw log.
+        MessageKind::ShowOutput { .. } => (if ascii { ">" } else { "»" }, Color::Blue),
     }
 }
 
@@ -434,7 +441,7 @@ mod tests {
             "./intro.tex\n\
              \x20 ! Package examplepkg: Citation `key1' undefined  (line 8, page 1)\n\
              \x20 ! Package examplepkg: Citation `key2' undefined  (line 8, page 1)\n"
-                .replace('!', "⚠")
+                .replace('!', "▲")
         );
     }
 
@@ -463,7 +470,7 @@ mod tests {
              \n\
              ./intro.tex\n\
              \x20 ! Package examplepkg: Citation `key2' undefined  (line 8, page 1)\n"
-                .replace('!', "⚠")
+                .replace('!', "▲")
         );
     }
 
@@ -485,9 +492,9 @@ mod tests {
         assert_eq!(
             out,
             "./chapters/intro.tex\n\
-             \x20 ⚠ Package examplepkg: Something  (line 2, page 1)\n\
+             \x20 ▲ Package examplepkg: Something  (line 2, page 1)\n\
              \n\
-             ⚠ pdf backend: unreferenced destination with name 'x'  (line 0, page 0)\n"
+             ▲ pdf backend: unreferenced destination with name 'x'  (line 0, page 0)\n"
         );
     }
 
@@ -612,7 +619,7 @@ mod tests {
              \x20 ! Package examplepkg: Citation for key\n\
              \x20                       alpha beta gamma\n\
              \x20                       delta undefined  (line 8, page 1)\n"
-                .replace('!', "⚠")
+                .replace('!', "▲")
         );
     }
 
