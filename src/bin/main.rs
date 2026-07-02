@@ -50,7 +50,7 @@ fn should_show(kind: &MessageKind, no_warn: bool, no_boxes: bool) -> bool {
     }
 }
 
-fn dispatch(event: Event, renderer: &mut Renderer<io::Stdout>, no_warn: bool, no_boxes: bool) {
+fn dispatch(event: Event, renderer: &mut Renderer<io::LineWriter<io::Stdout>>, no_warn: bool, no_boxes: bool) {
     if let Event::Message(m) = &event {
         if !should_show(&m.kind, no_warn, no_boxes) {
             return;
@@ -62,7 +62,7 @@ fn dispatch(event: Event, renderer: &mut Renderer<io::Stdout>, no_warn: bool, no
 async fn drive<R: AsyncRead + Unpin>(
     reader: R,
     parser: &mut LogParser,
-    renderer: &mut Renderer<io::Stdout>,
+    renderer: &mut Renderer<io::LineWriter<io::Stdout>>,
     no_warn: bool,
     no_boxes: bool,
 ) -> io::Result<()> {
@@ -93,7 +93,7 @@ async fn main() -> io::Result<()> {
     let opts = RenderOptions { ascii: cli.ascii, color: !cli.no_color, width };
 
     let mut parser = LogParser::new();
-    let mut renderer = Renderer::new(io::stdout(), opts);
+    let mut renderer = Renderer::new(io::LineWriter::new(io::stdout()), opts);
 
     if let Some(path) = &cli.file {
         let file = tokio::fs::File::open(path).await?;
@@ -106,6 +106,7 @@ async fn main() -> io::Result<()> {
     if is_file {
         renderer.render_summary();
     }
+    renderer.flush()?;
 
     Ok(())
 }

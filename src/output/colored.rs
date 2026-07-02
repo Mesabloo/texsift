@@ -131,6 +131,13 @@ impl<W: Write> Renderer<W> {
     /// nothing left to flush at EOF.
     pub fn finish(&mut self) {}
 
+    /// Flush the underlying writer. Callers using a buffered `W` (e.g.
+    /// `BufWriter`) must call this before the process exits, since a
+    /// `BufWriter` silently drops flush errors on `Drop`.
+    pub fn flush(&mut self) -> std::io::Result<()> {
+        self.out.flush()
+    }
+
     /// Print the summary footer (file input only - never call for stdin).
     pub fn render_summary(&mut self) {
         let dash = if self.opts.ascii { "-" } else { "─" };
