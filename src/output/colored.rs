@@ -305,7 +305,9 @@ impl<W: Write> Renderer<W> {
             writeln!(self.out).ok();
         }
         let glyph = if self.opts.ascii { "*" } else { "✔" };
-        writeln!(self.out, "{}", self.paint(&format!("{glyph} PDF written: {path}"), Color::Green)).ok();
+        let glyph_painted = self.paint_bold(glyph, Color::Green);
+        let rest = self.paint(&format!(" PDF written: {path}"), Color::Green);
+        writeln!(self.out, "{glyph_painted}{rest}").ok();
         self.printed_anything = true;
     }
 

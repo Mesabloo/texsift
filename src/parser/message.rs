@@ -42,7 +42,7 @@ impl RawMessage {
 }
 
 fn is_recognized_event_prefix(line: &str) -> bool {
-    const PREFIXES: [&str; 10] = [
+    const PREFIXES: [&str; 11] = [
         "!",
         "Overfull",
         "Underfull",
@@ -52,6 +52,7 @@ fn is_recognized_event_prefix(line: &str) -> bool {
         "Missing character",
         "(",
         "[",
+        "]",
         "Warning--",
     ];
     line.starts_with("l.") || line.starts_with("FiXme") || PREFIXES.iter().any(|p| line.starts_with(p))
@@ -1012,5 +1013,21 @@ mod tests {
         ]);
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].text, "unreferenced destination with name 'chapter.1'");
+    }
+
+    #[test]
+    fn warning_continuation_stops_at_a_page_close_bracket() {
+        // A `pdf backend` warning fired mid-page-shipout can be immediately
+        // followed by the `]` that closes the page (plus further page
+        // numbers and file opens/closes on the same physical line, e.g.
+        // "] [58] [59]) (./chapters/b/wd.tex"). That trailer must not be
+        // absorbed into the warning text - `]` is a recognized event prefix,
+        // just like the `[` that opens a page.
+        let msgs = feed_all(&[
+            "warning  (pdf backend): ignoring duplicate destination with the name 'equation.4.1'",
+            "] [58] [59] [60] [61]) (./chapters/b/wd.tex",
+        ]);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].text, "ignoring duplicate destination with the name 'equation.4.1'");
     }
 }

@@ -42,11 +42,16 @@ impl LineJoiner {
     /// Feed one physical line; returns zero or one completed logical lines.
     ///
     /// Whether wrapping continues is decided by the length of the incoming
-    /// physical line itself (TeX chops every wrapped fragment at exactly 79
-    /// chars except the last), not by the length of the accumulated buffer.
+    /// physical line itself (TeX chops every wrapped fragment at a fixed
+    /// width except the last), not by the length of the accumulated buffer.
+    /// The classic engines wrap at exactly 79 chars, but LuaTeX's own
+    /// Lua-originated output (module-loading banners, `pdf backend:`
+    /// messages) wraps one character later, at 80 - both widths show up as
+    /// genuine mid-word/mid-path splits in the same real-world log, so both
+    /// are treated as wrap points.
     pub fn feed(&mut self, line: &str) -> Vec<String> {
         let mut out = Vec::new();
-        let incoming_is_79 = line.chars().count() == 79;
+        let incoming_is_wrapped = matches!(line.chars().count(), 79 | 80);
         let joined = match self.pending.take() {
             Some(pending) if starts_fresh_line(line) => {
                 out.push(pending);
@@ -58,7 +63,7 @@ impl LineJoiner {
             }
             None => line.to_string(),
         };
-        if incoming_is_79 {
+        if incoming_is_wrapped {
             self.pending = Some(joined);
         } else {
             out.push(joined);
@@ -103,6 +108,19 @@ mod tests {
         let refs: Vec<&str> = frags.iter().map(String::as_str).collect();
         let out = feed_all(&refs);
         assert_eq!(out, vec![full]);
+    }
+
+    #[test]
+    fn joins_80_char_lua_originated_wrap() {
+        // LuaTeX's own Lua-originated output (module banners, `pdf backend:`
+        // messages) hard-wraps one character later than the classic engine
+        // does - at 80, not 79 - splitting mid-word just like the 79-char
+        // case. Real example from a LuaHBTeX log: the destination name
+        // `equation.4.1` gets split right down the middle.
+        let full = "warning  (pdf backend): ignoring duplicate destination with the name 'equation.4.1'";
+        let frags: Vec<&str> = vec![&full[..80], &full[80..]];
+        let out = feed_all(&frags);
+        assert_eq!(out, vec![full.to_string()]);
     }
 
     #[test]

@@ -353,8 +353,10 @@ or suppressed — all events are always emitted.
 ### 79-character line wrapping
 
 TeX hard-wraps all output at column 79, splitting mid-word and mid-path. This
-also applies to LuaLaTeX logs (though LuaTeX itself may have different limits;
-the latexmk wrapper and package messages still wrap). Examples:
+also applies to LuaLaTeX logs, though LuaTeX's own Lua-originated output
+(module-loading banners, `pdf backend:` messages) wraps one character later,
+at 80 - both widths show up as genuine wraps in the same real-world log, so
+the joiner treats both as wrap points. Examples:
 
 ```
 (/usr/local/texlive/2025/texmf-dist/tex/generic/pgf/utilities/pgfutil-common.te
@@ -364,16 +366,20 @@ x)
 Package natbib Warning: Citation `compcert' on page 1 undefined on input line 8
 .
 ```
+```
+warning  (pdf backend): ignoring duplicate destination with the name 'equation.4
+.1'
+```
 
 **LineJoiner algorithm**: maintain a `pending: Option<String>` buffer.
 
 1. If `pending` holds a line and the new line does *not* start with a fresh-line
    marker, append the new line to `pending` and continue buffering.
 2. If the new line starts a fresh line, emit `pending`, then process the new
-   line normally (possibly setting it as the new `pending` if it is also 79
-   chars).
-3. After processing, if the current logical line is exactly 79 chars, move it
-   into `pending`; otherwise emit it immediately.
+   line normally (possibly setting it as the new `pending` if it is also 79 or
+   80 chars).
+3. After processing, if the current logical line is exactly 79 or 80 chars,
+   move it into `pending`; otherwise emit it immediately.
 
 **Fresh-line markers** (prefixes that unambiguously start a new logical line):
 empty line, `Package `, `LaTeX `, `Class `, `Overfull `, `Underfull `, `! `,
@@ -489,7 +495,7 @@ When rendering, output in this order:
 4. Hint lines as `│  <line>`.
 
 "Recognised event prefix" means any of: `!`, `Overfull`, `Underfull`,
-`LaTeX Warning`, `Package`, `Class`, `Missing character`, `(`, `[`, `l.`,
+`LaTeX Warning`, `Package`, `Class`, `Missing character`, `(`, `[`, `]`, `l.`,
 `Warning--`, `FiXme`.
 
 GCC-style errors (`file:N: message`) extract file, line, and message from the

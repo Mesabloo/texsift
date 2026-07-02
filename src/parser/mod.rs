@@ -370,4 +370,46 @@ mod tests {
         });
         assert!(!noisy);
     }
+
+    #[test]
+    fn test6_log_pdf_backend_warning_does_not_swallow_trailing_file_opens() {
+        // Regression test: a `pdf backend` warning fired mid-page-shipout in
+        // this real log wraps its destination name across an 80-char
+        // Lua-originated physical line, then is immediately followed on the
+        // next physical line by the page-close `]`, more page numbers, and
+        // two file opens (`./chapters/b/wd.tex`, `./chapters/b/semantics.tex`).
+        // Before the fix, the warning's continuation-matching swallowed all
+        // of that trailing text into the warning message and never reached
+        // the file stack, losing both file opens.
+        let raw = read_sample("test6.log");
+        let mut p = LogParser::new();
+        let mut events = Vec::new();
+        for line in raw.lines() {
+            events.extend(p.feed(line));
+        }
+        events.extend(p.finish());
+
+        let dup_dest = events
+            .iter()
+            .find_map(|e| match e {
+                Event::Message(m) if m.text.contains("ignoring duplicate destination") => Some(m),
+                _ => None,
+            })
+            .expect("duplicate destination warning");
+        assert_eq!(dup_dest.text, "ignoring duplicate destination with the name 'equation.4.1'");
+
+        // `./chapters/b/wd.tex` and `./chapters/b/semantics.tex` open right
+        // after the warning on the same swallowed physical line; the file
+        // that follows (`semantics.tex`, which does carry its own hbox
+        // warnings) must show up as its own event rather than being fused
+        // into the pdf-backend warning's text above.
+        let opened_files: Vec<&str> = events
+            .iter()
+            .filter_map(|e| match e {
+                Event::Message(m) => Some(m.file.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(opened_files.contains(&"./chapters/b/semantics.tex"));
+    }
 }
