@@ -163,7 +163,10 @@ impl<W: Write> Renderer<W> {
     }
 
     fn print_message(&mut self, m: &LogMessage) {
-        let indent = "  ";
+        // A message with no enclosing file (e.g. a pdf-backend bookkeeping
+        // warning issued after every real file has closed) has no header to
+        // indent under - see the matching skip in `handle`.
+        let indent = if m.file.is_empty() { "" } else { "  " };
         let (glyph, color) = glyph_and_color(&m.kind, self.opts.ascii);
         let glyph_painted = self.paint_bold(glyph, color);
         let (label_plain, label_painted) = self.render_label_parts(m);
@@ -465,12 +468,13 @@ mod tests {
     }
 
     #[test]
-    fn empty_file_transition_skips_the_header_line() {
+    fn empty_file_transition_skips_the_header_line_and_indentation() {
         // Some messages (e.g. pdf-backend "unreferenced destination"
         // warnings during final page shipout) arrive with an empty `file`
         // because no input file is open at that point in the log. A file
         // transition into "" must not print a blank header line - just the
-        // usual single blank-line separator, then the message.
+        // usual single blank-line separator, then the message - and since
+        // there's no header to indent under, the message renders flush left.
         let out = render(
             vec![
                 warning("./chapters/intro.tex", "examplepkg", "Something", 2, 1),
@@ -483,7 +487,7 @@ mod tests {
             "./chapters/intro.tex\n\
              \x20 ⚠ Package examplepkg: Something  (line 2, page 1)\n\
              \n\
-             \x20 ⚠ pdf backend: unreferenced destination with name 'x'  (line 0, page 0)\n"
+             ⚠ pdf backend: unreferenced destination with name 'x'  (line 0, page 0)\n"
         );
     }
 

@@ -76,6 +76,15 @@ pass `--no-color` for plain output, e.g. when piping to a file.
 Pushing a version bump in `Cargo.toml` to `main` triggers CI to tag a release
 and attach prebuilt binaries for Linux, macOS, and Windows.
 
+The Linux/macOS binaries are uploaded as-is (not archived), so the executable
+bit doesn't survive the download - GitHub serves release assets as raw files
+over plain HTTP, which carries no file-permission metadata. Mark the binary
+executable after downloading it:
+
+```sh
+chmod +x texsift-<target-triple>
+```
+
 ## About
 
 This project was entirely vibe-coded with Claude: [Cowork](https://claude.com/product/cowork)

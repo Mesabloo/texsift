@@ -38,6 +38,13 @@ jobs:
             echo "Release $TAG already exists, skipping creation"
           else
             gh release create "$TAG" --title "$TAG" --target "${{ github.sha }}" --generate-notes
+            # Linux/macOS binaries are uploaded as raw files, not archives, so
+            # the executable bit doesn't survive the download (GitHub serves
+            # assets over plain HTTP, which carries no permission metadata) -
+            # prepend a heads-up to the auto-generated notes.
+            NOTE='**Note:** the Linux/macOS binaries are uploaded as raw files (not archived), so the executable bit does not survive the download. Run `chmod +x` on the binary before using it.'
+            BODY=$(gh release view "$TAG" --json body -q .body)
+            gh release edit "$TAG" --notes "$NOTE"$'\n\n'"$BODY"
           fi
 
   build-and-test:
