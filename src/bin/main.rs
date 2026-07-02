@@ -1,10 +1,7 @@
-use std::io;
+use std::io::{self, BufRead};
 use std::path::PathBuf;
 
 use clap::Parser;
-use tokio::io::AsyncRead;
-use tokio_stream::StreamExt;
-use tokio_util::codec::{FramedRead, LinesCodec};
 
 use texsift::output::{RenderOptions, Renderer};
 use texsift::parser::LogParser;
@@ -91,15 +88,14 @@ fn dispatch(event: Event, renderer: &mut Renderer<io::LineWriter<io::Stdout>>, f
     renderer.handle(event);
 }
 
-async fn drive<R: AsyncRead + Unpin>(
+fn drive<R: BufRead>(
     reader: R,
     parser: &mut LogParser,
     renderer: &mut Renderer<io::LineWriter<io::Stdout>>,
     filter: &Filter,
 ) -> io::Result<()> {
-    let mut framed = FramedRead::new(reader, LinesCodec::new());
-    while let Some(line) = framed.next().await {
-        let line = line.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    for line in reader.lines() {
+        let line = line?;
         for event in parser.feed(&line) {
             dispatch(event, renderer, filter);
         }
@@ -110,8 +106,7 @@ async fn drive<R: AsyncRead + Unpin>(
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> io::Result<()> {
+fn main() -> io::Result<()> {
     let cli = Cli::parse();
     let is_file = cli.file.is_some();
 
@@ -128,10 +123,10 @@ async fn main() -> io::Result<()> {
     let mut renderer = Renderer::new(io::LineWriter::new(io::stdout()), opts);
 
     if let Some(path) = &cli.file {
-        let file = tokio::fs::File::open(path).await?;
-        drive(file, &mut parser, &mut renderer, &filter).await?;
+        let file = std::fs::File::open(path)?;
+        drive(io::BufReader::new(file), &mut parser, &mut renderer, &filter)?;
     } else {
-        drive(tokio::io::stdin(), &mut parser, &mut renderer, &filter).await?;
+        drive(io::BufReader::new(io::stdin()), &mut parser, &mut renderer, &filter)?;
     }
 
     renderer.finish();

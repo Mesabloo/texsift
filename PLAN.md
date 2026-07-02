@@ -253,25 +253,26 @@ and become stale.
 
 ---
 
-## Architecture: async streaming pipeline
+## Architecture: synchronous streaming pipeline
 
 ```
-AsyncRead (stdin or tokio::fs::File)
-  └─ tokio::io::BufReader
-      └─ FramedRead<LinesCodec>     lines arrive as they are written; EOF closes stream
-          └─ LineJoiner              stateful: rejoins 79-char-wrapped fragments
-              └─ LogParser           stateful: drives file stack + message detector
-                  └─ Event stream    Message | PassBoundary | Eof
-                      └─ OutputRenderer   writes colored lines to stdout
+BufRead (stdin or std::fs::File, wrapped in io::BufReader)
+  └─ .lines()                    lines arrive as they are written; EOF closes stream
+      └─ LineJoiner              stateful: rejoins 79/80-char-wrapped fragments
+          └─ LogParser           stateful: drives file stack + message detector
+              └─ Event stream    Message | PassBoundary | PdfBuilt
+                  └─ OutputRenderer   writes colored lines to stdout
 ```
 
 The pipeline is fully streaming: output is emitted incrementally, not after full
-buffering. For stdin (the primary case), each line from pdflatex can in principle
-be processed and rendered immediately. EOF on stdin (latexmk quits) terminates
-the stream.
+buffering. For stdin (the primary case), each line from pdflatex is processed
+and rendered as soon as it arrives. EOF on stdin (latexmk quits) terminates the
+loop.
 
-Both stdin and file inputs use the same `FramedRead<LinesCodec>` mechanism. No
-polling, `inotify`, or file-watching is required.
+Both stdin and file inputs go through the same `BufRead::lines()` iterator -
+there's no concurrency anywhere in the pipeline (one line in, one set of
+events out, synchronously), so there's no async runtime involved. No polling,
+`inotify`, or file-watching is required.
 
 ---
 
@@ -623,14 +624,12 @@ Error count is red if nonzero, green if zero. Not printed for stdin.
 ## Dependencies
 
 Current `Cargo.toml`:
-- `tokio` (full)
-- `tokio-util` (codec, io)
-- `tokio-stream`
-- `colored`
-
-To add:
+- `colored` — ANSI styling
 - `clap` (derive feature) — CLI argument parsing; also handles `--ascii` as aliases
 - `terminal_size` — query terminal width for separator lines
+
+No async runtime: the pipeline is a synchronous `BufRead::lines()` loop (see
+"Architecture" above) with no concurrency to justify one.
 
 ---
 
