@@ -51,16 +51,14 @@ fn glyph_and_color(kind: &MessageKind, ascii: bool) -> (&'static str, Color) {
 /// the current message's file differs from the previous message's file. If
 /// the same file's messages are non-contiguous in the stream (interleaved
 /// with another file's), its header is printed again on each return - the
-/// tradeoff for not holding anything back. Nesting per
-/// [`LogMessage::ancestors`] still collapses "invisible" wrapper files with
-/// no messages of their own, computed from what's been seen so far this
-/// pass (see [`handle`]).
+/// tradeoff for not holding anything back. All file headers render flush
+/// left, with messages indented one level under their header, regardless of
+/// how deeply the file is nested in TeX's actual `(`/`)` open stack.
 pub struct Renderer<W: Write> {
     out: W,
     opts: RenderOptions,
     printed_anything: bool,
     current_file: Option<String>,
-    files_seen_this_pass: std::collections::HashSet<String>,
     error_count: usize,
     warning_count: usize,
     overfull_count: usize,
@@ -83,7 +81,6 @@ impl<W: Write> Renderer<W> {
             opts,
             printed_anything: false,
             current_file: None,
-            files_seen_this_pass: std::collections::HashSet::new(),
             error_count: 0,
             warning_count: 0,
             overfull_count: 0,
@@ -95,14 +92,6 @@ impl<W: Write> Renderer<W> {
         match event {
             Event::Message(m) => {
                 self.tally(&m.kind);
-                // A file's visible nesting only counts ancestors that
-                // *already* have a message of their own earlier in this
-                // pass's stream. A real but message-less wrapper file - one
-                // TeX opened but that never produced (or hasn't yet
-                // produced, at this point in the stream) a diagnostic of its
-                // own - does not add a level of indentation for whatever is
-                // nested inside it.
-                let depth = m.ancestors.iter().filter(|a| self.files_seen_this_pass.contains(a.as_str())).count();
                 if self.current_file.as_deref() != Some(m.file.as_str()) {
                     if self.printed_anything {
                         writeln!(self.out).ok();
@@ -114,23 +103,20 @@ impl<W: Write> Renderer<W> {
                     // meaningful to head the group with, so skip the header
                     // line rather than printing a blank one.
                     if !m.file.is_empty() {
-                        self.print_file_header(&m.file, depth);
+                        self.print_file_header(&m.file);
                     }
                     self.current_file = Some(m.file.clone());
-                    self.files_seen_this_pass.insert(m.file.clone());
                     self.printed_anything = true;
                 }
-                self.print_message(&m, depth);
+                self.print_message(&m);
             }
             Event::PassBoundary(kind) => {
                 self.print_pass_separator(&pass_label(&kind));
                 self.current_file = None;
-                self.files_seen_this_pass.clear();
             }
             Event::PdfBuilt { path } => {
                 self.print_pdf_built(&path);
                 self.current_file = None;
-                self.files_seen_this_pass.clear();
             }
         }
     }
@@ -171,14 +157,13 @@ impl<W: Write> Renderer<W> {
         }
     }
 
-    fn print_file_header(&mut self, file: &str, depth: usize) {
-        let indent = "  ".repeat(depth);
+    fn print_file_header(&mut self, file: &str) {
         let painted = self.paint(file, Color::Green);
-        writeln!(self.out, "{indent}{painted}").ok();
+        writeln!(self.out, "{painted}").ok();
     }
 
-    fn print_message(&mut self, m: &LogMessage, depth: usize) {
-        let indent = "  ".repeat(depth + 1);
+    fn print_message(&mut self, m: &LogMessage) {
+        let indent = "  ";
         let (glyph, color) = glyph_and_color(&m.kind, self.opts.ascii);
         let glyph_painted = self.paint_bold(glyph, color);
         let (label_plain, label_painted) = self.render_label_parts(m);
@@ -205,7 +190,7 @@ impl<W: Write> Renderer<W> {
             }
             writeln!(self.out).ok();
         }
-        self.print_context(m, &indent, color);
+        self.print_context(m, indent, color);
     }
 
     /// The free-form message text, before any label prefix - this is the
@@ -410,24 +395,22 @@ mod tests {
         RenderOptions { ascii: true, color: false, width }
     }
 
-    /// A [`LogMessage`] with sensible defaults (no ancestors, no
-    /// line/page, no context) - callers override only the fields that
-    /// matter for what they're testing via struct-update syntax.
+    /// A [`LogMessage`] with sensible defaults (no line/page, no context) -
+    /// callers override only the fields that matter for what they're
+    /// testing via struct-update syntax.
     fn message(kind: MessageKind, file: &str, text: &str) -> LogMessage {
         LogMessage {
             kind,
             text: text.to_string(),
             file: file.to_string(),
-            ancestors: vec![],
             line_range: None,
             page: None,
             context: vec![],
         }
     }
 
-    fn warning(file: &str, ancestors: &[&str], package: &str, text: &str, line: u32, page: u32) -> Event {
+    fn warning(file: &str, package: &str, text: &str, line: u32, page: u32) -> Event {
         Event::Message(LogMessage {
-            ancestors: ancestors.iter().map(|s| s.to_string()).collect(),
             line_range: Some((line, line)),
             page: Some(page),
             ..message(MessageKind::PackageWarning { package: package.to_string() }, file, text)
@@ -438,8 +421,8 @@ mod tests {
     fn consecutive_messages_for_the_same_file_share_one_header() {
         let out = render(
             vec![
-                warning("./intro.tex", &[], "examplepkg", "Citation `key1' undefined", 8, 1),
-                warning("./intro.tex", &[], "examplepkg", "Citation `key2' undefined", 8, 1),
+                warning("./intro.tex", "examplepkg", "Citation `key1' undefined", 8, 1),
+                warning("./intro.tex", "examplepkg", "Citation `key2' undefined", 8, 1),
             ],
             no_color(80),
         );
@@ -461,9 +444,9 @@ mod tests {
         // on return, rather than being retroactively grouped together.
         let out = render(
             vec![
-                warning("./intro.tex", &[], "examplepkg", "Citation `key1' undefined", 8, 1),
-                warning("./sub.tex", &["./intro.tex"], "examplepkg", "Something", 2, 1),
-                warning("./intro.tex", &[], "examplepkg", "Citation `key2' undefined", 8, 1),
+                warning("./intro.tex", "examplepkg", "Citation `key1' undefined", 8, 1),
+                warning("./sub.tex", "examplepkg", "Something", 2, 1),
+                warning("./intro.tex", "examplepkg", "Citation `key2' undefined", 8, 1),
             ],
             no_color(80),
         );
@@ -472,8 +455,8 @@ mod tests {
             "./intro.tex\n\
              \x20 ! Package examplepkg: Citation `key1' undefined  (line 8, page 1)\n\
              \n\
-             \x20 ./sub.tex\n\
-             \x20\x20\x20\x20! Package examplepkg: Something  (line 2, page 1)\n\
+             ./sub.tex\n\
+             \x20 ! Package examplepkg: Something  (line 2, page 1)\n\
              \n\
              ./intro.tex\n\
              \x20 ! Package examplepkg: Citation `key2' undefined  (line 8, page 1)\n"
@@ -490,8 +473,8 @@ mod tests {
         // usual single blank-line separator, then the message.
         let out = render(
             vec![
-                warning("./chapters/intro.tex", &[], "examplepkg", "Something", 2, 1),
-                warning("", &[], "pdf backend", "unreferenced destination with name 'x'", 0, 0),
+                warning("./chapters/intro.tex", "examplepkg", "Something", 2, 1),
+                warning("", "pdf backend", "unreferenced destination with name 'x'", 0, 0),
             ],
             no_color(80),
         );
@@ -501,49 +484,6 @@ mod tests {
              \x20 ⚠ Package examplepkg: Something  (line 2, page 1)\n\
              \n\
              \x20 ⚠ pdf backend: unreferenced destination with name 'x'  (line 0, page 0)\n"
-        );
-    }
-
-    #[test]
-    fn message_less_wrapper_file_is_collapsed_out_of_indentation() {
-        // ./wrapper.tex sits between ./main.tex and ./sub.tex in the real
-        // file-open chain, but never has any messages of its own, so it
-        // never gets a header printed - its child should render at the same
-        // depth as a normal top-level file, not two levels deep.
-        let out = render(
-            vec![warning("./sub.tex", &["./main.tex", "./wrapper.tex"], "examplepkg", "Something", 2, 1)],
-            no_color(80),
-        );
-        assert_eq!(
-            out,
-            "./sub.tex\n  ⚠ Package examplepkg: Something  (line 2, page 1)\n"
-        );
-    }
-
-    #[test]
-    fn ancestor_message_arriving_later_in_the_pass_does_not_retroactively_nest_its_earlier_child() {
-        // ./main.tex is a real ancestor of build/main.aux (TeX opens the aux
-        // file from within the still-open main.tex at end-of-document), but
-        // main.tex's own message in this pass happens to come *after*
-        // build/main.aux's first message in the log stream. build/main.aux
-        // must render at depth 0, not nested under a parent that "becomes
-        // visible" only retroactively.
-        let out = render(
-            vec![
-                warning("build/main.aux", &["./main.tex"], "LaTeX", "Label multiply defined", 10, 1),
-                Event::Message(message(
-                    MessageKind::PackageWarning { package: "natbib".to_string() },
-                    "./main.tex",
-                    "There were undefined citations",
-                )),
-            ],
-            no_color(80),
-        );
-        assert_eq!(
-            out,
-            "build/main.aux\n  ⚠ LaTeX: Label multiply defined  (line 10, page 1)\n\
-             \n\
-             ./main.tex\n  ⚠ Package natbib: There were undefined citations\n"
         );
     }
 
@@ -659,7 +599,7 @@ mod tests {
     #[test]
     fn long_package_warning_body_wraps_with_continuation_aligned_under_label() {
         let out = render(
-            vec![warning("./main.tex", &[], "examplepkg", "Citation for key alpha beta gamma delta undefined", 8, 1)],
+            vec![warning("./main.tex", "examplepkg", "Citation for key alpha beta gamma delta undefined", 8, 1)],
             no_color(40),
         );
         assert_eq!(

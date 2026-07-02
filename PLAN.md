@@ -545,17 +545,18 @@ inserted after `── `.
 
 ### Per-file block
 
-Files appear in the order their first message is encountered. Nested includes
-are indented 2 spaces per nesting level relative to their parent, with no
-additional glyph — the indentation alone signals the relationship.
+Files appear in the order their first message is encountered, all flush left
+regardless of how deeply TeX's `(`/`)` file-open stack actually nests them -
+messages are indented one level under their header, and that's the only
+indentation there is.
 
 ```
 ./intro.tex
   ⚠ Package natbib: Citation `compcert' undefined  (line 8, page 1)
   » Overfull \hbox 13.30pt too wide  (output active)
 
-  ./PingPongs.tla
-    » Overfull \hbox 53.33pt too wide  (lines 2–3)
+./PingPongs.tla
+  » Overfull \hbox 53.33pt too wide  (lines 2–3)
 ```
 
 **Color scheme** (same in both Unicode and ASCII modes):
@@ -563,7 +564,6 @@ additional glyph — the indentation alone signals the relationship.
 | Element | Color |
 |---|---|
 | File path | Green |
-| Nested file path | Green (same as top-level); indented by 2 spaces per nesting level |
 | Error glyph (`✕` / `x`) | Bright red, bold |
 | Warning glyph (`⚠` / `!`) | Yellow |
 | Overfull glyph (`»` / `>`) | Magenta |

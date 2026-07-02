@@ -124,21 +124,12 @@ impl LogParser {
     fn to_event(&self, raw: RawMessage) -> Event {
         // A message that carries its own file (GCC-style errors, BibTeX
         // warnings) isn't positioned within the file-open stack at all, so
-        // it renders at the top level rather than inheriting whatever
-        // nesting happens to be current.
-        let (file, ancestors) = match raw.file_override {
-            Some(file) => (file, Vec::new()),
-            None => {
-                let mut chain = self.stack.file_chain();
-                let file = chain.pop().unwrap_or_default();
-                (file, chain)
-            }
-        };
+        // it uses that file verbatim rather than the stack's current file.
+        let file = raw.file_override.unwrap_or_else(|| self.stack.current_file().to_string());
         Event::Message(LogMessage {
             kind: raw.kind,
             text: raw.text,
             file,
-            ancestors,
             line_range: raw.line_range,
             page: raw.page,
             context: raw.context,
@@ -175,7 +166,6 @@ mod tests {
         match &events[0] {
             Event::Message(m) => {
                 assert_eq!(m.file, "./intro.tex");
-                assert!(m.ancestors.is_empty());
                 assert_eq!(m.kind, MessageKind::PackageWarning { package: "examplepkg".to_string() });
             }
             _ => panic!("expected message"),
@@ -183,7 +173,6 @@ mod tests {
         match &events[1] {
             Event::Message(m) => {
                 assert_eq!(m.file, "./sub.tex");
-                assert_eq!(m.ancestors, vec!["./intro.tex".to_string()]);
                 assert!(matches!(m.kind, MessageKind::OverfullHbox { .. }));
             }
             _ => panic!("expected message"),
