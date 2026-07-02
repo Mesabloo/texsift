@@ -37,20 +37,6 @@ impl FileStack {
         self.stack.len()
     }
 
-    /// Nesting level of [`current_file`], counting only real file entries:
-    /// 0 if no file is open, or if exactly one is (the top-level document);
-    /// 1 for a file opened from within that one, etc.
-    pub fn file_depth(&self) -> usize {
-        self.file_chain().len().saturating_sub(1)
-    }
-
-    /// The full chain of currently-open real files, outermost first, e.g.
-    /// `["./main.tex", "./compiler.tex", "./compiler_g2n.tex"]`. Non-path
-    /// entries are skipped, same as [`current_file`].
-    pub fn file_chain(&self) -> Vec<String> {
-        self.stack.iter().filter_map(|e| e.clone()).collect()
-    }
-
     /// Scan one already-joined logical line, updating the stack.
     pub fn process_line(&mut self, line: &str) {
         for (i, c) in line.char_indices() {
@@ -140,33 +126,6 @@ mod tests {
         s.process_line("(see manual)");
         assert_eq!(s.depth(), 1);
         assert_eq!(s.current_file(), "./main.tex");
-    }
-
-    #[test]
-    fn file_depth_ignores_non_path_entries() {
-        let mut s = FileStack::new();
-        assert_eq!(s.file_depth(), 0);
-        s.process_line("(./main.tex");
-        assert_eq!(s.file_depth(), 0); // top-level document, not "nested"
-        s.process_line("(see manual");
-        assert_eq!(s.file_depth(), 0); // non-path open does not add nesting
-        s.process_line("(./sub.tex");
-        assert_eq!(s.file_depth(), 1); // one real file nested inside another
-    }
-
-    #[test]
-    fn file_chain_lists_ancestors_outermost_first() {
-        let mut s = FileStack::new();
-        assert_eq!(s.file_chain(), Vec::<String>::new());
-        s.process_line("(./main.tex");
-        assert_eq!(s.file_chain(), vec!["./main.tex".to_string()]);
-        s.process_line("(see manual");
-        assert_eq!(s.file_chain(), vec!["./main.tex".to_string()]);
-        s.process_line("(./wrapper.tex(./sub.tex");
-        assert_eq!(
-            s.file_chain(),
-            vec!["./main.tex".to_string(), "./wrapper.tex".to_string(), "./sub.tex".to_string()]
-        );
     }
 
     #[test]

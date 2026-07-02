@@ -44,18 +44,26 @@ struct Filter {
     /// is suppressed, regardless of package.
     no_warn_all: bool,
     /// `--no-warn=<package>` (repeatable): only `PackageWarning`s from
-    /// these specific packages are suppressed. Matched against the
-    /// package name as-is, or with hyphens read as spaces, so
+    /// these specific packages are suppressed. Each entry is `(raw,
+    /// normalized)`, normalized once up front (hyphens read as spaces, so
     /// `pdf-backend` reaches the engine's `pdf backend` label without
-    /// needing to quote a literal space on the command line.
-    no_warn_packages: Vec<String>,
+    /// needing to quote a literal space on the command line) rather than
+    /// re-normalizing on every message checked against it.
+    no_warn_packages: Vec<(String, String)>,
     no_boxes: bool,
 }
 
 impl Filter {
     fn new(no_warn: Vec<String>, no_boxes: bool) -> Self {
         let no_warn_all = no_warn.iter().any(|v| v == "all");
-        let no_warn_packages = no_warn.into_iter().filter(|v| v != "all").collect();
+        let no_warn_packages = no_warn
+            .into_iter()
+            .filter(|v| v != "all")
+            .map(|raw| {
+                let normalized = raw.replace('-', " ");
+                (raw, normalized)
+            })
+            .collect();
         Self { no_warn_all, no_warn_packages, no_boxes }
     }
 
@@ -68,7 +76,7 @@ impl Filter {
                     return false;
                 }
                 if let MessageKind::PackageWarning { package } = kind {
-                    let excluded = self.no_warn_packages.iter().any(|p| p == package || p.replace('-', " ") == *package);
+                    let excluded = self.no_warn_packages.iter().any(|(raw, normalized)| raw == package || normalized == package);
                     if excluded {
                         return false;
                     }

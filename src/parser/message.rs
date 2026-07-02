@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::model::MessageKind;
 use crate::parser::file_stack::looks_like_path;
 
@@ -168,33 +170,53 @@ fn try_parse_line_marker(line: &str) -> Option<(u32, String)> {
     Some((n, after.to_string()))
 }
 
-fn extract_marker(text: &str, marker: &str) -> (String, Option<u32>) {
-    if let Some(idx) = text.find(marker) {
-        let after = &text[idx + marker.len()..];
-        let num_end = after
-            .find(|c: char| !c.is_ascii_digit())
-            .unwrap_or(after.len());
-        if num_end > 0
-            && let Ok(n) = after[..num_end].parse::<u32>()
-        {
-            let mut rest = &after[num_end..];
-            if let Some(stripped) = rest.strip_prefix('.') {
-                rest = stripped;
-            }
-            let combined = format!("{}{}", &text[..idx], rest);
-            return (combined, Some(n));
-        }
+/// Finds `marker` followed by a run of ASCII digits (optionally followed by
+/// a `.`), and returns `text` with that whole `"<marker>N[.]"` span removed,
+/// plus the parsed number - or `None` if `marker` isn't present or isn't
+/// followed by a valid number, so the common case (no such marker in this
+/// message) allocates nothing.
+fn extract_marker(text: &str, marker: &str) -> Option<(String, u32)> {
+    let idx = text.find(marker)?;
+    let after = &text[idx + marker.len()..];
+    let num_end = after.find(|c: char| !c.is_ascii_digit()).unwrap_or(after.len());
+    if num_end == 0 {
+        return None;
     }
-    (text.to_string(), None)
+    let n: u32 = after[..num_end].parse().ok()?;
+    let mut rest = &after[num_end..];
+    if let Some(stripped) = rest.strip_prefix('.') {
+        rest = stripped;
+    }
+    Some((format!("{}{}", &text[..idx], rest), n))
 }
 
-fn normalize_spaces(s: &str) -> String {
-    s.split(' ').filter(|p| !p.is_empty()).collect::<Vec<_>>().join(" ")
+/// Collapses runs of spaces down to one, borrowing `s` unchanged when
+/// there's nothing to collapse - the common case, since this only matters
+/// when `extract_marker` actually removed a marker from the middle of the
+/// text.
+fn normalize_spaces(s: &str) -> Cow<'_, str> {
+    if !s.contains("  ") {
+        return Cow::Borrowed(s);
+    }
+    let mut out = String::with_capacity(s.len());
+    for word in s.split(' ').filter(|p| !p.is_empty()) {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(word);
+    }
+    Cow::Owned(out)
 }
 
 fn parse_optional_page_and_line(text: &str) -> (String, Option<u32>, Option<u32>) {
-    let (t1, page) = extract_marker(text, "on page ");
-    let (t2, line) = extract_marker(&t1, "on input line ");
+    let (t1, page) = match extract_marker(text, "on page ") {
+        Some((t, n)) => (Cow::Owned(t), Some(n)),
+        None => (Cow::Borrowed(text), None),
+    };
+    let (t2, line) = match extract_marker(&t1, "on input line ") {
+        Some((t, n)) => (Cow::Owned(t), Some(n)),
+        None => (t1, None),
+    };
     let cleaned = normalize_spaces(&t2).trim().to_string();
     (cleaned, line, page)
 }
