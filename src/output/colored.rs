@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::io::Write;
 
 use colored::{Color, Colorize};
@@ -375,11 +376,11 @@ fn split_at_char(s: &str, n: usize) -> (&str, &str) {
     }
 }
 
-fn pass_label(kind: &PassKind) -> String {
+fn pass_label(kind: &PassKind) -> Cow<'static, str> {
     match kind {
-        PassKind::Pdflatex => "pdflatex".to_string(),
-        PassKind::Bibtex => "bibtex".to_string(),
-        PassKind::Other(name) => name.clone(),
+        PassKind::Pdflatex => Cow::Borrowed("pdflatex"),
+        PassKind::Bibtex => Cow::Borrowed("bibtex"),
+        PassKind::Other(name) => Cow::Owned(name.clone()),
     }
 }
 
