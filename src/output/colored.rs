@@ -1,9 +1,8 @@
-use std::borrow::Cow;
 use std::io::Write;
 
 use colored::{Color, Colorize};
 
-use crate::model::{Category, Event, LogMessage, MessageKind, PassKind};
+use crate::model::{Category, Event, LogMessage, MessageKind};
 
 #[derive(Debug, Clone, Copy)]
 pub struct RenderOptions {
@@ -131,7 +130,7 @@ impl<W: Write> Renderer<W> {
                 self.print_message(&m);
             }
             Event::PassBoundary(kind) => {
-                self.print_pass_separator(&pass_label(&kind));
+                self.print_pass_separator(&kind);
                 self.current_file = None;
             }
             Event::OutputBuilt { path } => {
@@ -387,14 +386,6 @@ fn split_at_char(s: &str, n: usize) -> (&str, &str) {
     }
 }
 
-fn pass_label(kind: &PassKind) -> Cow<'static, str> {
-    match kind {
-        PassKind::Pdflatex => Cow::Borrowed("pdflatex"),
-        PassKind::Bibtex => Cow::Borrowed("bibtex"),
-        PassKind::Other(name) => Cow::Owned(name.clone()),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -534,7 +525,7 @@ mod tests {
 
     #[test]
     fn width_override_controls_separator_length() {
-        let out = render(vec![Event::PassBoundary(PassKind::Pdflatex)], no_color(40));
+        let out = render(vec![Event::PassBoundary("pdflatex".to_string())], no_color(40));
         let first_line = out.lines().next().unwrap();
         assert_eq!(first_line.chars().count(), 40);
         assert!(first_line.starts_with("── pdflatex "));

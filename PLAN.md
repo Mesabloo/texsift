@@ -309,7 +309,7 @@ src/
 
   model/
     mod.rs
-    entry.rs                    LogMessage, MessageKind, Event, PassKind
+    entry.rs                    LogMessage, MessageKind, Event
 
   output/
     mod.rs
@@ -321,12 +321,6 @@ src/
 ## Data model (`src/model/entry.rs`)
 
 ```rust
-pub enum PassKind {
-    Pdflatex,
-    Bibtex,
-    Other(String),
-}
-
 pub enum MessageKind {
     LatexError,
     PackageWarning { package: String },
@@ -351,14 +345,16 @@ pub struct LogMessage {
 
 pub enum Event {
     Message(LogMessage),
-    PassBoundary(PassKind),
+    PassBoundary(String),
     OutputBuilt { path: String },
 }
 ```
 
 `PassBoundary` events are emitted when the parser detects a latexmk pass header.
-The renderer uses them to print the separator line. No messages are deduplicated
-or suppressed — all events are always emitted.
+The renderer uses them to print the separator line, showing the rule/engine name
+verbatim as latexmk (or the engine's own banner) printed it — no attempt is made
+to bucket every possible engine or `cus_dep` rule name into a canonical label.
+No messages are deduplicated or suppressed — all events are always emitted.
 
 ---
 
@@ -528,10 +524,14 @@ Latexmk emits lines like `Run number N of rule 'pdflatex'` before each tool
 invocation. The parser matches these lines and emits a `PassBoundary` event,
 then discards the line (it does not reach the message detector or file stack).
 
-Patterns:
-- `Run number \d+ of rule 'pdflatex'` → `PassKind::Pdflatex`
-- `Run number \d+ of rule 'bibtex .*'` → `PassKind::Bibtex`
-- `Run number \d+ of rule '(.*)'` → `PassKind::Other(name)`
+Pattern: `Run number \d+ of rule '(.*)'` → `PassBoundary(name)`, where `name` is
+the captured rule name shown verbatim (e.g. `pdflatex`, `bibtex build/main`,
+or any `cus_dep` rule name latexmk invokes for glossaries/nomenclature/etc.).
+When there's no latexmk wrapper at all (a bare `lualatex file.tex` invocation),
+the engine's own `This is <Engine>, ...` banner is used as a fallback signal,
+with the name taken from its `format=<name>` token if present, or the text up
+to the first comma otherwise; a bare `This is BibTeX, ...` banner (no
+`format=` token) maps to `"bibtex"`.
 
 `Output written on <path> (...)` → `OutputBuilt { path }`. Emitted regardless
 of whether errors occurred in the same pass. The renderer prints a short

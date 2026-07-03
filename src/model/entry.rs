@@ -1,10 +1,3 @@
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PassKind {
-    Pdflatex,
-    Bibtex,
-    Other(String),
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum MessageKind {
     LatexError,
@@ -55,7 +48,10 @@ pub struct LogMessage {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     Message(LogMessage),
-    PassBoundary(PassKind),
+    /// The rule/engine name is shown verbatim as latexmk (or the engine's
+    /// own banner) printed it - no attempt is made to bucket every possible
+    /// engine or `cus_dep` rule name into a canonical label.
+    PassBoundary(String),
     /// `Output written on <path> (...)` - despite the name TeX prints for
     /// this message, `<path>` isn't necessarily a PDF (plain `latex`
     /// produces a `.dvi`, etc.), so the renderer picks the label from the

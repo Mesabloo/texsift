@@ -2,24 +2,17 @@ pub mod file_stack;
 pub mod line_joiner;
 pub mod message;
 
-use crate::model::{Event, LogMessage, PassKind};
+use crate::model::{Event, LogMessage};
 use file_stack::FileStack;
 use line_joiner::LineJoiner;
 use message::{MessageMatcher, RawMessage};
 
-fn try_parse_pass_boundary(line: &str) -> Option<PassKind> {
+fn try_parse_pass_boundary(line: &str) -> Option<String> {
     let rest = line.strip_prefix("Run number ")?;
     let after_num = rest.find(|c: char| !c.is_ascii_digit())?;
     let after = rest[after_num..].strip_prefix(" of rule '")?;
     let end = after.find('\'')?;
-    let name = &after[..end];
-    Some(if name == "pdflatex" {
-        PassKind::Pdflatex
-    } else if name.starts_with("bibtex") {
-        PassKind::Bibtex
-    } else {
-        PassKind::Other(name.to_string())
-    })
+    Some(after[..end].to_string())
 }
 
 fn try_parse_output_built(line: &str) -> Option<String> {
@@ -32,19 +25,18 @@ fn try_parse_output_built(line: &str) -> Option<String> {
 /// `Run number ... of rule '...'` wrapper (e.g. plain `lualatex file.tex`):
 /// every engine run prints a `This is <Engine>, ...` banner, which for
 /// LaTeX-family formats also carries a `format=<name>` token.
-fn try_parse_engine_banner(line: &str) -> Option<PassKind> {
+fn try_parse_engine_banner(line: &str) -> Option<String> {
     let rest = line.strip_prefix("This is ")?;
     if rest.starts_with("BibTeX") {
-        return Some(PassKind::Bibtex);
+        return Some("bibtex".to_string());
     }
     if let Some(idx) = rest.find("format=") {
         let after = &rest[idx + "format=".len()..];
         let end = after.find(|c: char| c.is_whitespace() || c == ')').unwrap_or(after.len());
-        let fmt = &after[..end];
-        return Some(if fmt == "pdflatex" { PassKind::Pdflatex } else { PassKind::Other(fmt.to_string()) });
+        return Some(after[..end].to_string());
     }
     let end = rest.find(',').unwrap_or(rest.len());
-    Some(PassKind::Other(rest[..end].to_string()))
+    Some(rest[..end].to_string())
 }
 
 /// Coordinates [`LineJoiner`], [`FileStack`], and [`MessageMatcher`] into a
@@ -191,10 +183,10 @@ mod tests {
         assert_eq!(
             events,
             vec![
-                Event::PassBoundary(PassKind::Pdflatex),
+                Event::PassBoundary("pdflatex".to_string()),
                 Event::OutputBuilt { path: "build/main.pdf".to_string() },
-                Event::PassBoundary(PassKind::Bibtex),
-                Event::PassBoundary(PassKind::Other("sometool".to_string())),
+                Event::PassBoundary("bibtex build/main".to_string()),
+                Event::PassBoundary("sometool".to_string()),
             ]
         );
     }
@@ -205,7 +197,7 @@ mod tests {
         // number` line at all - the engine banner is the only signal that a
         // pass started.
         let events = run(&["This is LuaHBTeX, Version 1.24.0 (TeX Live 2026)  (format=lualatex 2026.5.19)  1 JAN 2026"]);
-        assert_eq!(events, vec![Event::PassBoundary(PassKind::Other("lualatex".to_string()))]);
+        assert_eq!(events, vec![Event::PassBoundary("lualatex".to_string())]);
     }
 
     #[test]
@@ -217,7 +209,7 @@ mod tests {
             "Run number 1 of rule 'pdflatex'",
             "This is pdfTeX, Version 3.14 (TeX Live 2025) (preloaded format=pdflatex)",
         ]);
-        assert_eq!(events, vec![Event::PassBoundary(PassKind::Pdflatex)]);
+        assert_eq!(events, vec![Event::PassBoundary("pdflatex".to_string())]);
     }
 
     #[test]
@@ -304,10 +296,11 @@ mod tests {
         let bibtex_warnings = count_kind(&|k| matches!(k, MessageKind::BibtexWarning));
         assert_eq!(bibtex_warnings, 2);
 
-        let pdflatex_passes = events.iter().filter(|e| matches!(e, Event::PassBoundary(PassKind::Pdflatex))).count();
+        let pdflatex_passes = events.iter().filter(|e| matches!(e, Event::PassBoundary(name) if name == "pdflatex")).count();
         assert_eq!(pdflatex_passes, 3);
 
-        let bibtex_passes = events.iter().filter(|e| matches!(e, Event::PassBoundary(PassKind::Bibtex))).count();
+        let bibtex_passes =
+            events.iter().filter(|e| matches!(e, Event::PassBoundary(name) if name == "bibtex build/main")).count();
         assert_eq!(bibtex_passes, 2);
 
         let output_built = events.iter().filter(|e| matches!(e, Event::OutputBuilt { .. })).count();
@@ -343,14 +336,14 @@ mod tests {
         // test2.log has no latexmk `Run number` wrapper at all - the single
         // pass must still be detected, from the `This is LuaHBTeX ...
         // (format=lualatex ...)` engine banner.
-        let passes: Vec<&PassKind> = events
+        let passes: Vec<&str> = events
             .iter()
             .filter_map(|e| match e {
-                Event::PassBoundary(kind) => Some(kind),
+                Event::PassBoundary(kind) => Some(kind.as_str()),
                 _ => None,
             })
             .collect();
-        assert_eq!(passes, vec![&PassKind::Other("lualatex".to_string())]);
+        assert_eq!(passes, vec!["lualatex"]);
 
         // LuaLaTeX/package Info noise must never surface as messages.
         let noisy = events.iter().any(|e| match e {
