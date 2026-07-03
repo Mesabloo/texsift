@@ -33,7 +33,8 @@ impl FileStack {
     }
 
     /// Total paren-nesting depth, including non-path entries.
-    pub fn depth(&self) -> usize {
+    #[cfg(test)]
+    fn depth(&self) -> usize {
         self.stack.len()
     }
 

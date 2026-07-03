@@ -1,4 +1,4 @@
-const FRESH_LINE_PREFIXES: [&str; 16] = [
+const FRESH_LINE_PREFIXES: [&str; 17] = [
     "Package ",
     "LaTeX ",
     "Class ",
@@ -15,13 +15,11 @@ const FRESH_LINE_PREFIXES: [&str; 16] = [
     "Run number",
     "Latexmk:",
     "Running '",
+    "------------",
 ];
 
 fn starts_fresh_line(line: &str) -> bool {
     if line.is_empty() {
-        return true;
-    }
-    if line.starts_with("------------") {
         return true;
     }
     FRESH_LINE_PREFIXES.iter().any(|p| line.starts_with(p))
