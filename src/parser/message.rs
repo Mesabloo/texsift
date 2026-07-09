@@ -120,10 +120,22 @@ fn strip_warning_annotation(line: &str) -> &str {
     strip_pkg_annotation(line).unwrap_or(line)
 }
 
+/// Lua's `debug.getinfo` chunk-name syntax wraps non-file sources in
+/// brackets (`[\directlua]`, `[string "..."]`, `[C]`) - LuaTeX's own Lua
+/// runtime errors use this as the "file" in an otherwise GCC-style
+/// `chunkname:N: message` line. It never starts with `[`, so
+/// [`looks_like_path`] (built for real filesystem paths) rejects it; this
+/// catches that shape separately rather than loosening `looks_like_path`
+/// itself, which is also used to tell real file-open parens apart from
+/// package annotation markers like `(natbib)`.
+fn looks_like_lua_chunk_name(token: &str) -> bool {
+    token.starts_with('[') && token.ends_with(']')
+}
+
 fn try_parse_gcc_style(line: &str) -> Option<(String, u32, String)> {
     let first_colon = line.find(':')?;
     let path = &line[..first_colon];
-    if !looks_like_path(path) {
+    if !looks_like_path(path) && !looks_like_lua_chunk_name(path) {
         return None;
     }
     let remainder = &line[first_colon + 1..];
@@ -836,6 +848,19 @@ mod tests {
         assert_eq!(msgs[0].file_override, Some("./mydoc.tex".to_string()));
         assert_eq!(msgs[0].line_range, Some((42, 42)));
         assert!(msgs[0].context.is_empty());
+    }
+
+    #[test]
+    fn lua_runtime_error_matches_gcc_style() {
+        // LuaTeX's own `\directlua` errors use Lua's bracketed chunk-name
+        // convention in place of a real file path, e.g.
+        // `[\directlua]:1: ')' expected near '.'.`.
+        let msgs = feed_all(&["[\\directlua]:1: ')' expected near '.'."]);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].kind, MessageKind::LatexError);
+        assert_eq!(msgs[0].text, "')' expected near '.'.");
+        assert_eq!(msgs[0].file_override, Some("[\\directlua]".to_string()));
+        assert_eq!(msgs[0].line_range, Some((1, 1)));
     }
 
     #[test]

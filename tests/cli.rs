@@ -123,3 +123,12 @@ fn width_zero_behaves_like_unset_and_auto_detects() {
     assert!(ok_zero);
     assert_eq!(stdout_unset, stdout_zero);
 }
+
+#[test]
+fn lua_runtime_error_is_reported() {
+    let (ok, stdout) = run_with_args(&["--no-color", &sample_path("test7.log")]);
+    assert!(ok);
+    assert!(stdout.contains("[\\directlua]"), "Lua chunk-name header should appear, got tail:\n{}", &stdout[stdout.len().saturating_sub(500)..]);
+    assert!(stdout.contains("')' expected near '.'."), "Lua error text should be shown");
+    assert!(stdout.contains("1 errors"), "summary footer should count the Lua error, got tail:\n{}", &stdout[stdout.len().saturating_sub(300)..]);
+}
