@@ -49,7 +49,14 @@ impl LineJoiner {
     /// are treated as wrap points.
     pub fn feed(&mut self, line: &str) -> Vec<String> {
         let mut out = Vec::new();
-        let incoming_is_wrapped = matches!(line.chars().count(), 79 | 80);
+        // `l.N <text>` context lines are never a hard-wrap continuation
+        // target: TeX follows them with a second, independently-meaningful
+        // line holding the text *after* the error point, not a raw
+        // mid-word/mid-path split. If that first line happens to land at
+        // exactly 79/80 chars, buffering it as `pending` would silently
+        // glue the unrelated second line onto it with no separator,
+        // destroying the significant break between the two halves.
+        let incoming_is_wrapped = matches!(line.chars().count(), 79 | 80) && !line.starts_with("l.");
         let joined = match self.pending.take() {
             Some(pending) if starts_fresh_line(line) => {
                 out.push(pending);
@@ -146,6 +153,20 @@ mod tests {
         let c = "cc".to_string();
         let out = feed_all(&[&a, &b, &c]);
         assert_eq!(out, vec![format!("{a}{b}{c}")]);
+    }
+
+    #[test]
+    fn does_not_join_error_context_line_even_at_wrap_width() {
+        // A `l.N <source text>` context line that happens to land at exactly
+        // 79 chars must not absorb the following line - that next line is
+        // the semantically-distinct "text after the error point" half, not
+        // a raw hard-wrap continuation.
+        let before = "x".repeat(74);
+        let line1 = format!("l.10 {before}");
+        assert_eq!(line1.chars().count(), 79);
+        let line2 = "       YYYafter";
+        let out = feed_all(&[&line1, line2]);
+        assert_eq!(out, vec![line1, line2.to_string()]);
     }
 
     #[test]
