@@ -78,8 +78,14 @@ fn is_recognized_event_prefix(line: &str) -> bool {
 ///   `<path/to/font.otf>` font-usage trailer immediately after the final
 ///   warning of a run, with no blank line separating them; without this,
 ///   the continuation logic absorbs the entire trailer into the warning.
+/// - A `)` always terminates: a `pdf backend` warning fired mid-page-shipout
+///   can be immediately followed by the file-close that ends the page, with
+///   no blank line or leading `]`/`[` in between (e.g.
+///   `) [96] [97] [98]`); `is_recognized_event_prefix` alone doesn't cover
+///   this because it's shared with the error read-ahead machine, which
+///   intentionally excludes bare `)`.
 fn terminates_warning_continuation(line: &str) -> bool {
-    if line.starts_with('<') {
+    if line.starts_with('<') || line.starts_with(')') {
         return true;
     }
     if let Some(rest) = line.strip_prefix('(') {
@@ -1072,5 +1078,21 @@ mod tests {
         ]);
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].text, "ignoring duplicate destination with the name 'equation.4.1'");
+    }
+
+    #[test]
+    fn warning_continuation_stops_at_a_bare_file_close() {
+        // A `pdf backend` warning fired mid-page-shipout can be immediately
+        // followed by the `)` that closes the current file, with no leading
+        // `]` and no blank line separating them (e.g. "listings" writing a
+        // warning right before closing an included source file, followed by
+        // page-shipout brackets: ") [96] [97] [98]"). That trailer must not
+        // be absorbed into the warning text.
+        let msgs = feed_all(&[
+            "warning  (pdf backend): ignoring duplicate destination with the name 'lstnumber.7.1.3'",
+            ") [96] [97] [98]",
+        ]);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].text, "ignoring duplicate destination with the name 'lstnumber.7.1.3'");
     }
 }
