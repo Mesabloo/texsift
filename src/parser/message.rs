@@ -275,19 +275,30 @@ fn try_parse_engine_warning(line: &str) -> Option<(String, String)> {
 }
 
 fn parse_box_location(after: &str) -> Option<(u32, u32)> {
-    let idx = after.find("at lines ")?;
-    let rest = &after[idx + "at lines ".len()..];
-    let mut parts = rest.splitn(2, "--");
-    let n: u32 = parts.next()?.trim().parse().ok()?;
-    let m_part = parts.next()?;
-    let end = m_part
+    if let Some(idx) = after.find("at lines ") {
+        let rest = &after[idx + "at lines ".len()..];
+        let mut parts = rest.splitn(2, "--");
+        let n: u32 = parts.next()?.trim().parse().ok()?;
+        let m_part = parts.next()?;
+        let end = m_part
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(m_part.len());
+        if end == 0 {
+            return None;
+        }
+        let m: u32 = m_part[..end].parse().ok()?;
+        return Some((n, m));
+    }
+    let idx = after.find("at line ")?;
+    let rest = after[idx + "at line ".len()..].trim_start();
+    let end = rest
         .find(|c: char| !c.is_ascii_digit())
-        .unwrap_or(m_part.len());
+        .unwrap_or(rest.len());
     if end == 0 {
         return None;
     }
-    let m: u32 = m_part[..end].parse().ok()?;
-    Some((n, m))
+    let n: u32 = rest[..end].parse().ok()?;
+    Some((n, n))
 }
 
 fn try_parse_overfull_hbox(line: &str) -> Option<(f32, Option<(u32, u32)>)> {
@@ -780,6 +791,12 @@ mod tests {
     fn overfull_hbox_with_lines() {
         let msgs = feed_all(&["Overfull \\hbox (53.3pt too wide) in paragraph at lines 2--3"]);
         assert_eq!(msgs[0].line_range, Some((2, 3)));
+    }
+
+    #[test]
+    fn overfull_hbox_with_single_line() {
+        let msgs = feed_all(&["Overfull \\hbox (4.48137pt too wide) detected at line 1147"]);
+        assert_eq!(msgs[0].line_range, Some((1147, 1147)));
     }
 
     #[test]
