@@ -250,7 +250,13 @@ fn try_parse_named_warning(line: &str) -> Option<(String, String)> {
     }
     if let Some(idx) = line.find(" Warning: ") {
         let pkg = &line[..idx];
-        if !pkg.is_empty() && !pkg.contains(' ') {
+        // Plain package/engine names ("LaTeX", "pdfTeX") have no space, but
+        // the kernel's \GenericWarning macro also emits two-token labels of
+        // the form "LaTeX <name> Warning: ..." (e.g. tcolorbox's `cmd`
+        // tracer) - accept that shape too, rather than silently dropping the
+        // whole message for containing a space.
+        let is_latex_named = pkg.strip_prefix("LaTeX ").is_some_and(|rest| !rest.is_empty() && !rest.contains(' '));
+        if !pkg.is_empty() && (!pkg.contains(' ') || is_latex_named) {
             return Some((pkg.to_string(), line[idx + " Warning: ".len()..].to_string()));
         }
     }
@@ -748,6 +754,19 @@ mod tests {
         assert_eq!(msgs[0].text, "Reference `ex:foo' undefined");
         assert_eq!(msgs[0].line_range, Some((13, 13)));
         assert_eq!(msgs[0].page, Some(1));
+    }
+
+    #[test]
+    fn generic_warning_with_named_source() {
+        // \GenericWarning{LaTeX cmd} (used by e.g. tcolorbox's `cmd` tracer)
+        // emits "LaTeX <name> Warning: ..." - a two-token label, not the
+        // single bare "LaTeX" of catch_all_latex_warning above.
+        let msgs = feed_all(&["LaTeX cmd Warning: something happened here"]);
+        assert_eq!(
+            msgs[0].kind,
+            MessageKind::PackageWarning { package: "LaTeX cmd".to_string() }
+        );
+        assert_eq!(msgs[0].text, "something happened here");
     }
 
     #[test]
