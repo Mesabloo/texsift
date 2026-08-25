@@ -1,0 +1,29 @@
+This is LuaHBTeX, Version 1.24.0 (TeX Live 2026)  (format=lualatex 2026.5.19)  1 JAN 2026
+ restricted system commands enabled.
+**main.tex
+(./main.tex
+LaTeX2e <2025-11-01>
+
+! Undefined control sequence.
+l.10 side effects (e.g.\@ assignments or \foo
+                                              {bar}
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+! Undefined control sequence.
+l.12 a fresh process-local variable (initia...
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+(./chapters/sub.tex
+Overfull \hbox (5.0pt too wide) in paragraph at lines 1--2
+[]
+)
+)
+Output written on main.pdf (1 page, 1000 bytes).

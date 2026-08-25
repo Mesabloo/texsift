@@ -107,10 +107,18 @@ impl LogParser {
         // before this line's own `(`/`)` changes are applied - a pending
         // message belongs to whatever file was open when it started, not
         // whatever this terminating line happens to open next.
-        for raw in self.matcher.feed(line) {
+        let raws = self.matcher.feed(line);
+        // Lines absorbed as error/warning context text (e.g. an echoed
+        // `l.N` source snippet) are quoted document source, not real TeX
+        // file-open notation - a stray `(` in there (`(e.g.\@ ...`) must
+        // not be mistaken by the file stack for a file open.
+        let structural = self.matcher.last_line_structural();
+        for raw in raws {
             out.push(self.to_event(raw));
         }
-        self.stack.process_line(line);
+        if structural {
+            self.stack.process_line(line);
+        }
     }
 
     fn to_event(&self, raw: RawMessage) -> Event {
@@ -393,5 +401,45 @@ mod tests {
             })
             .collect();
         assert!(opened_files.contains(&"./chapters/b/semantics.tex"));
+    }
+
+    #[test]
+    fn test9_log_error_context_parens_are_not_mistaken_for_file_opens() {
+        // Regression test: an "Undefined control sequence" error's `l.N`
+        // context line can echo user LaTeX source that happens to contain a
+        // stray `(` mid-line (e.g. "(e.g.\@ assignments...", "(initia...").
+        // Before the fix, FileStack scanned every physical line - including
+        // this echoed source text - for `(`/`)`, so tokens like `e.g.\@` and
+        // `initia...` got misread as file paths and rendered as bogus file
+        // headers, and the real file that opens right after
+        // (`./chapters/sub.tex`) risked inheriting a corrupted stack depth.
+        let raw = read_sample("test9.log");
+        let mut p = LogParser::new();
+        let mut events = Vec::new();
+        for line in raw.lines() {
+            events.extend(p.feed(line));
+        }
+        events.extend(p.finish());
+
+        let errors: Vec<&LogMessage> = events
+            .iter()
+            .filter_map(|e| match e {
+                Event::Message(m) if matches!(m.kind, MessageKind::LatexError) => Some(m),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(errors.len(), 2);
+        // Both errors must stay attributed to the file open when they
+        // occurred, not to a fake path scraped from their own context text.
+        assert!(errors.iter().all(|m| m.file == "./main.tex"));
+
+        let hbox = events
+            .iter()
+            .find_map(|e| match e {
+                Event::Message(m) if matches!(m.kind, MessageKind::OverfullHbox { .. }) => Some(m),
+                _ => None,
+            })
+            .expect("overfull hbox message");
+        assert_eq!(hbox.file, "./chapters/sub.tex");
     }
 }

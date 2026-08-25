@@ -381,18 +381,34 @@ enum State {
 #[derive(Debug, Default)]
 pub struct MessageMatcher {
     state: State,
+    /// Whether the line most recently passed to [`Self::feed`] was handled
+    /// as a real top-level TeX output line (via [`Self::dispatch_idle`]),
+    /// as opposed to being absorbed as free-form error/warning context text
+    ///   - e.g. an echoed source snippet on an `l.N` line, which can contain
+    ///     stray `(`/`)` characters (`(e.g.\@ ...`) that must not be
+    ///     mistaken for real file-open notation by
+    ///     [`crate::parser::file_stack::FileStack`].
+    structural: bool,
 }
 
 impl MessageMatcher {
     pub fn new() -> Self {
-        Self { state: State::Idle }
+        Self { state: State::Idle, structural: false }
     }
 
     pub fn feed(&mut self, line: &str) -> Vec<RawMessage> {
         let mut out = Vec::new();
+        self.structural = false;
         let state = std::mem::take(&mut self.state);
         self.step(state, line, &mut out);
         out
+    }
+
+    /// Whether the line passed to the most recent [`Self::feed`] call should
+    /// be visible to the file-open stack. `false` while a line was consumed
+    /// purely as accumulated message context/continuation text.
+    pub fn last_line_structural(&self) -> bool {
+        self.structural
     }
 
     pub fn finish(&mut self) -> Vec<RawMessage> {
@@ -421,6 +437,7 @@ impl MessageMatcher {
     }
 
     fn dispatch_idle(&mut self, line: &str, out: &mut Vec<RawMessage>) {
+        self.structural = true;
         if let Some((file, n, msg)) = try_parse_gcc_style(line) {
             Self::start_gcc_error(file, n, &msg, out);
             return;
